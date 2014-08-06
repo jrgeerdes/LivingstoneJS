@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>OSM - WebGL Library Testing</title>
+        <style type="text/css">
+            html, body{
+                height: 100%;
+            }
+            
+            #map{
+                height: 100%;
+                width: 100%;
+            }
+        </style>
+        <script type="text/javascript" src="js/osm_webgl.js"></script>
+        <script type="text/javascript">
+            window['_osm'].addDOMListener('load', function(){
+                window['test_map'] = new window['_osm']['Map']('map', {
+                });
+            });
+        </script>
+    </head>
+    <body>
+        <div id="map">Loading...</div>
+    </body>
+</html>
