@@ -2,9 +2,11 @@
 <html>
     <head>
         <title>OSM - WebGL Library Testing</title>
+        <link rel="stylesheet" type="text/css" href="css/osm_webgl.css" />
         <style type="text/css">
             html, body{
                 height: 100%;
+                margin: 0;
             }
             
             #map{
@@ -16,6 +18,11 @@
         <script type="text/javascript">
             window['_osm'].addDOMListener('load', function(){
                 window['test_map'] = new window['_osm']['Map']('map', {
+                    'map_type' : window['_osm']['MapType']['STREET_MAP'],
+                    'viewport' : {
+                        'center' : new window['_osm']['LatLng'](41, -92),
+                        'zoom' : 0
+                    }
                 });
             });
         </script>
