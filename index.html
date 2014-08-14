@@ -2,6 +2,7 @@
 <html>
     <head>
         <title>OSM - WebGL Library Testing</title>
+        <meta name="viewport" content="width=device-width, user-scalable=no" />
         <link rel="stylesheet" type="text/css" href="css/osm_webgl.css" />
         <style type="text/css">
             html, body{
@@ -17,13 +18,20 @@
         <script type="text/javascript" src="js/osm_webgl.js"></script>
         <script type="text/javascript">
             window['_osm'].addDOMListener('load', function(){
-                window['test_map'] = new window['_osm']['Map']('map', {
+                var map = window['test_map'] = new window['_osm']['Map']('map', {
                     'map_type' : window['_osm']['MapType']['STREET_MAP'],
                     'viewport' : {
                         'center' : new window['_osm']['LatLng'](41, -92),
                         'zoom' : 0
                     }
                 });
+                var marker = window['test_marker'] = new window['_osm']['Marker']({
+                    'position' : new window['_osm']['LatLng'](41, -92),
+                    'map' : map,
+                    'color' : 'green',
+                    'label' : 'Iowa',
+                    'label_color' : 'yellow'
+                })
             });
         </script>
     </head>
