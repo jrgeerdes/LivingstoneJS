@@ -44,27 +44,33 @@ minimize the code.
     make_public('Map', Map); // export to the public namespace
     Map.prototype.init_env = function(){
         var map_canvas = arguments[0] || this.map_canvas,
-        context = null;
+        context = null,
+        opt_options = this.options;
         if(map_canvas && map_canvas.getContext){
-            context = map_canvas.getContext('webgl');
-            if(!context){
-                context = map_canvas.getContext('experimental-webgl');
+            if(!opt_options['disable_webgl']){ // if we're dealing with webGL and can do 3d stuff
+                this.use_webgl = 1;
+                context = map_canvas.getContext('webgl');
+                if(!context){
+                    context = map_canvas.getContext('experimental-webgl');
+                }
             }
-        }
-        if(context){ // if we're dealing with webGL and can do 3d stuff
-            this.use_webgl = 1;
-        } else { // if webgl is unavailable, let's bounce to 2d canvas stuff
-            this.use_webgl = 0;
-            context = map_canvas.getContext('2d');
-            context.fillStyle = 'rgba(100, 100, 100, 1)';
-            context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+            if(!context){ // if webgl is unavailable, let's bounce to 2d canvas stuff
+                this.use_webgl = 0;
+                context = map_canvas.getContext('2d');
+                context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
+                context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+            }
         }
         this.context = context;
         
         // set up the event listeners
-        add_dom_event('mousedown', create_method_closure(this, Map.prototype.start_drag), map_canvas);
-        add_dom_event('mouseup', create_method_closure(this, Map.prototype.end_drag)); // we attach the mouseup to the window, in case someone drags off the map and releases there
-//        add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
+        var mousedownlistener = create_method_closure(this, Map.prototype.start_drag), map_canvas,
+        mouseuplistener = create_method_closure(this, Map.prototype.end_drag);
+        add_dom_event('mousedown', mousedownlistener, map_canvas);
+        add_dom_event('touchstart', mousedownlistener, map_canvas);
+        add_dom_event('mouseup', mouseuplistener); // we attach the mouseup to the window, in case someone drags off the map and releases there
+        add_dom_event('touchend', mouseuplistener);
+        add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
     };
     Map.prototype['setMapType'] = function(map_type){
         if(Array.isArray(map_type)){
@@ -194,10 +200,12 @@ minimize the code.
         }
     };
     Map.prototype.start_drag = function(e){
-        this.mousemove_listener = add_dom_event('mousemove', create_method_closure(this, Map.prototype.drag, [{
+        var handler = create_method_closure(this, Map.prototype.drag, [{
             e : e,
             center : this.get_center_as_pt()
-        }]), window);
+        }]);
+        this.mousemove_listener = add_dom_event('mousemove', handler, window);
+        this.touchmove_listener = add_dom_event('touchmove', handler, window);
 
         if(this.drag_start_listener){
             this.drag_start_listener();
@@ -211,7 +219,13 @@ minimize the code.
         }
     };
     Map.prototype.click = function(e){
+        if(this.click_listener){
+            this.click_listener(e);
+        }
         
+        // calculate map coords so we can see if we're in an overlay
+        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays; i++){
+        }
     };
     Map.prototype.drag = function(anchor, e){
         var x_moved = anchor.e.clientX - e.clientX,
@@ -232,7 +246,10 @@ minimize the code.
         });
         
         if(this.drag_listener){
-            this.drag_listener();
+            this.drag_listener({
+                'e' : e,
+                'anchor' : anchor
+            });
         }
     };
     
@@ -321,28 +338,37 @@ minimize the code.
     MapType.prototype.placeTile = function(x, y, zoom){
 //        console && console.log && console.log(([x, y, zoom]).join(' | ')); // debugging only
         var tiles = this.tiles = this.tiles || {},
-        total_tiles = Math.pow(2, zoom),
+        total_tiles = this.total_tiles = this.total_tiles || Math.pow(2, zoom),
         tileX = x % total_tiles, // the actual x coord of tile we're going to draw
         tileY = y % total_tiles, // the actual y coord of tile we're going to draw
         map = this.map,
         opt_options = this.options,
-        tileWidth = opt_options['width'] || 256,
+        tileWidth = this.tile_width = this.tile_width || (opt_options['width'] || 256),
         tileHeight = opt_options['height'] || 256;
-        if(tileX < 0){
+        while(tileX < 0){
             tileX = total_tiles + tileX;
         }
+/*
         if(tileY < 0){
             tileY = total_tiles + tileY;
         }
-        var img = tiles[zoom] && tiles[zoom][tileX]? tiles[zoom][tileX][tileY] : undefined;
-        if(img && img.osm_webgl_ready){
-            var imgX = (x * tileWidth) - map.offsetLeft,
-            imgY = (y * tileHeight) - map.offsetTop;
-            if(imgX > -tileWidth && imgY > -tileHeight){
-                map.context.drawImage(img, imgX, imgY);
+*/
+        var img = tiles[zoom] && tiles[zoom][tileX]? tiles[zoom][tileX][tileY] : undefined,
+        imgX = (x * tileWidth) - map.offsetLeft,
+        imgY = (y * tileHeight) - map.offsetTop,
+        context = map.context;
+        
+        if(tileY >= 0 && tileY <= total_tiles){
+            if(img && img.osm_webgl_ready){
+                if(imgX > -tileWidth && imgY > -tileHeight){
+                    context.drawImage(img, imgX, imgY);
+                }
+            } else if(!img){
+                this.generateTile(tileX, tileY, zoom);
             }
-        } else if(!img){
-            this.generateTile(tileX, tileY, zoom);
+        } else {
+            context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 0)';
+            context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
     MapType.STREET_MAP = function(map, opt_options){
@@ -365,95 +391,111 @@ minimize the code.
             var opt_options = this.options,
             map = opt_options['map'],
             context = map.context,
-            position = map.map_types[0]['fromLatLngToPoint'](opt_options['position']);
+            map_type = map.map_types[0],
+            canvas = map.map_canvas,
+            position = map_type['fromLatLngToPoint'](opt_options['position']);
+            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+            while(position.x < canvas.width - map.offsetLeft){
 // TODO: add support for tiling, in case the same location is displayed more than once
-            if(opt_options['icon']){ // if we have an icon given, we'll need to get it and draw it in the correct place
-                var img = this.img
-                if(img){ // if we have the image already
-                    var anchor = new Point( // get the anchoring point, which is relative to the upper-left corner of the marker. If we don't have one, we'll anchor it the center of the bottom of the image
-                        opt_options['anchor'] ? opt_options['anchor'].x : img.height,
-                        opt_options['anchor'] ? opt_options['anchor'].y : Math.round(img.width / 2)
-                    ),
-                    imgX = position.x - anchor.x - map.offsetLeft,
-                    imgY = position.y - anchor.y - map.offsetTop;
-                    context.drawImage(img, imgX, imgY);
-                } else {
-                    img = this.img = new Image;
-                    img.src = opt_options['icon'];
-                    img.onload = create_method_closure(this, Marker.prototype.draw);
-                }
-            } else { // if we're drawing a standard marker, let's do it.
-                var startingPos = new Point(position.x - 3 - map.offsetLeft, position.y - 30 - map.offsetTop),
-                anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
-                pole_width = 6,
-                pole_half = Math.round(pole_width / 2),
-                flag_height = 24,
-                txt_width = opt_options['label'] ? context.measureText(opt_options['label']).width : 0,
-                flag_width = Math.max(32, txt_width + 10),
-                flag_x = startingPos.x + pole_half + 1,
-                flag_perspective_difference = Math.round(pole_half * .75);
-                context.lineWidth = 1;
-                if(opt_options['label_font']){
-                    context.font = opt_options['label_font'] || '14px Arial';
-                }
-
-                // draw the flag
-                context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
-                context.beginPath();
-                context.moveTo(startingPos.x + pole_width, startingPos.y);
-                context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
-                context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
-                context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
-                context.fill();
-
-                // draw the flagpole
-                for(var i=0; i < pole_width; i++){
-                    var rgb_val = 175 - (50 * Math.max(i - pole_half, 0));
-                    context.beginPath();
-                    context.moveTo(startingPos.x + i, startingPos.y);
-                    context.lineTo(anchorPos.x, anchorPos.y);
-                    context.strokeStyle = 'rgba(' + rgb_val + ', ' + rgb_val + ', ' + rgb_val + ', 1)';
-                    context.stroke();
-                }
-                
-                // draw the cap of the flagpole
-                context.beginPath();
-                context.moveTo(startingPos.x, startingPos.y);
-                context.bezierCurveTo(startingPos.x, startingPos.y - 2, startingPos.x + pole_width, startingPos.y - 2, startingPos.x + pole_width, startingPos.y);
-                context.bezierCurveTo(startingPos.x + pole_width, startingPos.y + 2, startingPos.x, startingPos.y + 2, startingPos.x, startingPos.y);
-                context.fillStyle = 'rgba(175, 175, 175, 1)';
-                context.fill();
-                
-                // draw the label, if any
-                if(opt_options['label']){
-                    var txt_x = Math.round((flag_width - txt_width) / 2) - Math.round(flag_perspective_difference * .75),
-                    txt_height = this.txt_height;
-                    if(typeof(txt_height) == 'undefined'){
-                        var txt_height_el = create_element('div', [document.createTextNode(opt_options['label'])], null, {
-                            'font' : opt_options['label_font'] || '14px Arial',
-                            'position' : 'absolute',
-                            'visibility' : 'hidden'
-                        });
-                        document.body.appendChild(txt_height_el);
-                        txt_height = this.txt_height = txt_height_el.offsetHeight;
-                        document.body.removeChild(txt_height_el);
+                if(opt_options['icon']){ // if we have an icon given, we'll need to get it and draw it in the correct place
+                    var img = this.img
+                    if(img){ // if we have the image already
+                        var anchor = new Point( // get the anchoring point, which is relative to the upper-left corner of the marker. If we don't have one, we'll anchor it the center of the bottom of the image
+                            opt_options['anchor'] ? opt_options['anchor'].x : Math.round(img.width / 2),
+                            opt_options['anchor'] ? opt_options['anchor'].y : img.height
+                        ),
+                        imgX = position.x - anchor.x - map.offsetLeft,
+                        imgY = position.y - anchor.y - map.offsetTop;
+                        context.drawImage(img, imgX, imgY);
+                    } else {
+                        img = this.img = new Image;
+                        img.src = opt_options['icon'];
+                        img.onload = create_method_closure(this, Marker.prototype.draw);
                     }
-                    context.fillStyle = opt_options['label_color'] || '#000';
-                    context.fillText(
-                        opt_options['label'],
-                        startingPos.x + pole_width + txt_x,
-                        startingPos.y + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
-                    );
+                } else { // if we're drawing a standard marker, let's do it.
+                    var startingPos = new Point(position.x - 3 - map.offsetLeft, position.y - 30 - map.offsetTop),
+                    anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
+                    pole_width = 6,
+                    pole_half = Math.round(pole_width / 2),
+                    flag_height = 24,
+                    txt_width = opt_options['label'] ? context.measureText(opt_options['label']).width : 0,
+                    flag_width = Math.max(32, txt_width + 10),
+                    flag_x = startingPos.x + pole_half + 1,
+                    flag_perspective_difference = Math.round(pole_half * .75);
+                    context.lineWidth = 1;
+                    if(opt_options['label_font']){
+                        context.font = opt_options['label_font'] || '14px Arial';
+                    }
+
+                    // draw the flag
+                    context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
+                    context.beginPath();
+                    context.moveTo(startingPos.x + pole_width, startingPos.y);
+                    context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
+                    context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
+                    context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
+                    context.fill();
+
+                    // draw the flagpole
+                    for(var i=0; i < pole_width; i++){
+                        var rgb_val = 175 - (50 * Math.max(i - pole_half, 0));
+                        context.beginPath();
+                        context.moveTo(startingPos.x + i, startingPos.y);
+                        context.lineTo(anchorPos.x, anchorPos.y);
+                        context.strokeStyle = 'rgba(' + rgb_val + ', ' + rgb_val + ', ' + rgb_val + ', 1)';
+                        context.stroke();
+                    }
+                
+                    // draw the cap of the flagpole
+                    context.beginPath();
+                    context.moveTo(startingPos.x, startingPos.y);
+                    context.bezierCurveTo(startingPos.x, startingPos.y - 2, startingPos.x + pole_width, startingPos.y - 2, startingPos.x + pole_width, startingPos.y);
+                    context.bezierCurveTo(startingPos.x + pole_width, startingPos.y + 2, startingPos.x, startingPos.y + 2, startingPos.x, startingPos.y);
+                    context.fillStyle = 'rgba(175, 175, 175, 1)';
+                    context.fill();
+                
+                    // draw the label, if any
+                    if(opt_options['label']){
+                        var txt_x = Math.round((flag_width - txt_width) / 2) - Math.round(flag_perspective_difference * .75),
+                        txt_height = this.txt_height;
+                        if(typeof(txt_height) == 'undefined'){
+                            var txt_height_el = create_element('div', [document.createTextNode(opt_options['label'])], null, {
+                                'font' : opt_options['label_font'] || '14px Arial',
+                                'position' : 'absolute',
+                                'visibility' : 'hidden'
+                            });
+                            document.body.appendChild(txt_height_el);
+                            txt_height = this.txt_height = txt_height_el.offsetHeight;
+                            document.body.removeChild(txt_height_el);
+                        }
+                        context.fillStyle = opt_options['label_color'] || '#000';
+                        context.fillText(
+                            opt_options['label'],
+                            startingPos.x + pole_width + txt_x,
+                            startingPos.y + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
+                        );
+                    }
                 }
+                
+                // increment the position
+                position.x += map_type.total_tiles * map_type.tile_width;
             }
         }
     };
     Marker.prototype['setOptions'] = function(opt_options){
-        this.options = {}; // default options
+        this.options = this.options || {}; // default options
         for(var i in opt_options){
+            if(i == 'map' && opt_options[i] !== this.options['map']){
+                if(this.options['map'] && this.options['map'].removeOverlay){
+                    this.options['map'].removeOverlay(this);
+                }
+                if(opt_options['map'] && opt_options['map'].addOverlay){
+                    opt_options['map'].addOverlay(this);
+                }
+            }
             this.options[i] = opt_options[i];
         }
-        var map = opt_options['map'];
+        var map = this.options['map'];
         if(map){
             map.addOverlay(this, 1);
             this.draw();
