@@ -204,43 +204,54 @@ minimize the code.
             e : e,
             center : this.get_center_as_pt()
         }]);
-        this.mousemove_listener = add_dom_event('mousemove', handler, window);
-        this.touchmove_listener = add_dom_event('touchmove', handler, window);
 
+        // add mouse and touch drag listeners
+        this.mouse_drag_listener = add_dom_event('mousemove', handler, window);
+        this.touch_drag_listener = add_dom_event('touchmove', handler, window);
+
+        // call the user-defined drag start listener
         if(this.drag_start_listener){
             this.drag_start_listener();
         }
     };
     Map.prototype.end_drag = function(e){
-        remove_dom_event(this.mousemove_listener);
+//        console.log("Ending drag.");
+        remove_dom_event(this.mouse_drag_listener);
+        remove_dom_event(this.touch_drag_listener);
 
+        // call the user-defined drag end listener
         if(this.drag_end_listener){
             this.drag_end_listener();
         }
     };
     Map.prototype.click = function(e){
+        // call the user-defined click listener
         if(this.click_listener){
             this.click_listener(e);
         }
         
         // calculate map coords so we can see if we're in an overlay
-        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays; i++){
+        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays.length; i++){
         }
     };
     Map.prototype.drag = function(anchor, e){
+console.log('here.');
         var x_moved = anchor.e.clientX - e.clientX,
         y_moved = anchor.e.clientY - e.clientY,
         new_center_pt = new Point(
             anchor.center.x + x_moved,
             anchor.center.y + y_moved
         );
+
 /* debugging only
         if(console && console.log){
-            console.log(anchor);
-            console.log(e);
-            console.log(this.offsetLeft + ' | ' + this.offsetTop);
+//            console.log(anchor);
+//            console.log(e);
+//            console.log(this.offsetLeft + ' | ' + this.offsetTop);
+            console.log(x_moved + ', ' + y_moved);
         }
- debugging only */
+end debugging only */
+
         this.setViewport({
             'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt)
         });
@@ -344,21 +355,19 @@ minimize the code.
         map = this.map,
         opt_options = this.options,
         tileWidth = this.tile_width = this.tile_width || (opt_options['width'] || 256),
-        tileHeight = opt_options['height'] || 256;
+        tileHeight = this.tile_height = this.tile_height || (opt_options['height'] || 256);
+        
         while(tileX < 0){
             tileX = total_tiles + tileX;
         }
-/*
-        if(tileY < 0){
-            tileY = total_tiles + tileY;
-        }
-*/
+
         var img = tiles[zoom] && tiles[zoom][tileX]? tiles[zoom][tileX][tileY] : undefined,
         imgX = (x * tileWidth) - map.offsetLeft,
         imgY = (y * tileHeight) - map.offsetTop,
         context = map.context;
         
-        if(tileY >= 0 && tileY <= total_tiles){
+//        if(tileY >= 0 && tileY < total_tiles){
+        if(y >= 0 && y < total_tiles){
             if(img && img.osm_webgl_ready){
                 if(imgX > -tileWidth && imgY > -tileHeight){
                     context.drawImage(img, imgX, imgY);
@@ -367,7 +376,7 @@ minimize the code.
                 this.generateTile(tileX, tileY, zoom);
             }
         } else {
-            context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 0)';
+            context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 1)';
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
