@@ -235,7 +235,6 @@ minimize the code.
         }
     };
     Map.prototype.drag = function(anchor, e){
-console.log('here.');
         var x_moved = anchor.e.clientX - e.clientX,
         y_moved = anchor.e.clientY - e.clientY,
         new_center_pt = new Point(
@@ -263,6 +262,17 @@ end debugging only */
             });
         }
     };
+    Map.prototype.resize = function(){
+        var container = this.container,
+        canvas = this.map_canvas,
+        new_height = container.offsetHeight,
+        new_width = container.offsetWidth;
+        if(new_height != canvas.height || new_width != canvas.width){
+            canvas.height = new_height;
+            canvas.width = new_width;
+            this.render();
+        }
+    }
     
     
     
@@ -349,7 +359,7 @@ end debugging only */
     MapType.prototype.placeTile = function(x, y, zoom){
 //        console && console.log && console.log(([x, y, zoom]).join(' | ')); // debugging only
         var tiles = this.tiles = this.tiles || {},
-        total_tiles = this.total_tiles = this.total_tiles || Math.pow(2, zoom),
+        total_tiles = this.total_tiles = Math.pow(2, zoom),
         tileX = x % total_tiles, // the actual x coord of tile we're going to draw
         tileY = y % total_tiles, // the actual y coord of tile we're going to draw
         map = this.map,
@@ -404,7 +414,8 @@ end debugging only */
             canvas = map.map_canvas,
             position = map_type['fromLatLngToPoint'](opt_options['position']);
             position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
-            while(position.x < canvas.width - map.offsetLeft){
+//            while(position.x < canvas.width - map.offsetLeft){
+            while(position.x - map.offsetLeft < canvas.width){
 // TODO: add support for tiling, in case the same location is displayed more than once
                 if(opt_options['icon']){ // if we have an icon given, we'll need to get it and draw it in the correct place
                     var img = this.img
