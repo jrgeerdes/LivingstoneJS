@@ -20,9 +20,6 @@ minimize the code.
             'class' : 'osm_webgl-container',
             'width' : opt_options['canvas_x_resolution'] || el.offsetWidth,
             'height' : opt_options['canvas_y_resolution'] || el.offsetHeight
-        }, {
-            'width' : el.offsetWidth,
-            'height' : el.offsetHeight,
         });
         el.appendChild(
             this.inner_container = create_element(
@@ -30,10 +27,13 @@ minimize the code.
                 [map_canvas], {
                     'class' : 'osm_webgl-style'
                 }, {
+                    'position' : 'relative'
 //                    'cursor' : 'move'
                 }
             )
         );
+        
+        this.resize(); // set the height and width of the canvas, initialize the resize listener
         
         this.init_env();
         
@@ -126,10 +126,10 @@ minimize the code.
         // calculate the offset of the top-left corner of the map
         var offsetLeft = 0,
         offsetTop = 0,
-        map_type = this.map_types[0],
+        map_type = this.map_types && this.map_types[0] ? this.map_types[0] : null,
         viewport = this.viewport,
         map_canvas = this.map_canvas;
-        if(viewport && this.map_types && this.map_types.length > 0){
+        if(viewport && map_type){
             if(viewport['center'] && typeof(viewport['zoom']) == 'number'){ // if we have a center and zoom
                 var center_point = viewport['center'] instanceof Point ? viewport['center'] : map_type['fromLatLngToPoint'](viewport['center']);
                 offsetLeft = this.offsetLeft = (center_point.x - Math.round(map_canvas.width / 2));
@@ -266,6 +266,7 @@ minimize the code.
             el = el.offsetParent;
         }
 
+/*
         // run the coords against the controls first
         for(var i=0; this.controls && !e.cancelBubble && i<this.controls.length; i++){
             var control = this.controls[i];
@@ -277,11 +278,12 @@ minimize the code.
                 }
             }
         }
+*/
 
         // now, we refigure for map coords...
         coords.x += this.offsetLeft;
         coords.y += this.offsetTop;
-        var latlng = this.map_types[0]['fromPointToLatLng'](coords), // we need lat/lng coords to check overlays quickly and easily
+        var latlng = this.map_types[0]['fromPointToLatLng'](coords); // we need lat/lng coords to check overlays quickly and easily
         for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays.length; i++){
             var overlay = this.overlays[i],
             arg = {
@@ -351,6 +353,10 @@ minimize the code.
         return false;
     };
     Map.prototype.resize = function(){
+        var resize_timer = this.resize_timer;
+        if(resize_timer){
+            clearTimeout(resize_timer);
+        }
         var container = this.container,
         canvas = this.map_canvas,
         new_height = container.offsetHeight,
@@ -360,6 +366,14 @@ minimize the code.
             canvas.width = new_width;
             this.render();
         }
+        
+        // if we have a user-defined resize listener
+        if(this.resize_listener){
+            this.resize_listener();
+        }
+
+        var resize_closure = this.resize_closure = this.resize_closure || create_method_closure(this, Map.prototype.resize);
+//        this.resize_timer = setTimeout(resize_closure, 500);
     };
     Map.prototype['getMapType'] = function(){
         return this.map_types;
@@ -531,6 +545,19 @@ minimize the code.
         }
     }
     Overlay.prototype.click = function(e){
+        var opt_options = this.options,
+        infowindows = this.infowindows
+        
+        // if we have an infowindow
+        for(var i=0; infowindows && i<infowindows.length; i++){
+            
+        }
+        
+        // if we have a user-defined click listener
+        if(this.click_listener){
+            this.click_listener(e);
+        }
+        
         e.cancelBubble;
         return false;
     }
@@ -595,12 +622,14 @@ minimize the code.
 
                 // draw the flag
                 context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
+                context.strokeStyle = opt_options['flag_stroke_color'] || 'rgba(100, 25, 25, 1)';
                 context.beginPath();
                 context.moveTo(startingPos.x + pole_width, startingPos.y);
                 context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
                 context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
                 context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
                 context.fill();
+                context.stroke();
 
                 // draw the flagpole
                 for(var i=0; i < pole_width; i++){
@@ -830,8 +859,15 @@ minimize the code.
             }
         }
         
-        // return whether or not intersections is odd
-        return intersections % 2;
+        // if the number of intersections is odd (i.e., there is a remainder when divided by 2), then
+        // set the map cursor to pointer and return true
+        if(intersections % 2){
+            map.inner_container.style.cursor = 'pointer';
+            arg['e'].cancelBubble = 1;
+            return 1;
+        } else {
+            map.inner_container.style.cursor = '';
+        }
     };
     make_public('Marker', Marker);
     
