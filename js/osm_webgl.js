@@ -24,7 +24,16 @@ minimize the code.
             'width' : el.offsetWidth,
             'height' : el.offsetHeight,
         });
-        el.appendChild(map_canvas);
+        el.appendChild(
+            this.inner_container = create_element(
+                'div',
+                [map_canvas], {
+                    'class' : 'osm_webgl-style'
+                }, {
+//                    'cursor' : 'move'
+                }
+            )
+        );
         
         this.init_env();
         
@@ -64,13 +73,15 @@ minimize the code.
         this.context = context;
         
         // set up the event listeners
-        var mousedownlistener = create_method_closure(this, Map.prototype.start_drag), map_canvas,
-        mouseuplistener = create_method_closure(this, Map.prototype.end_drag);
+        var mousedownlistener = create_method_closure(this, Map.prototype.start_drag),
+        mouseuplistener = create_method_closure(this, Map.prototype.end_drag),
+        touch_processor = create_method_closure(this, Map.prototype.process_touch);
         add_dom_event('mousedown', mousedownlistener, map_canvas);
-        add_dom_event('touchstart', mousedownlistener, map_canvas);
+        add_dom_event('touchstart', touch_processor, map_canvas);
         add_dom_event('mouseup', mouseuplistener); // we attach the mouseup to the window, in case someone drags off the map and releases there
         add_dom_event('touchend', mouseuplistener);
         add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
+        add_dom_event('mousemove', create_method_closure(this, Map.prototype.mousemove), map_canvas);
     };
     Map.prototype['setMapType'] = function(map_type){
         if(Array.isArray(map_type)){
@@ -146,7 +157,7 @@ minimize the code.
             var overlays = this.overlays;
             for(var i=0; overlays && i < overlays.length; i++){
                 var overlay = overlays[i];
-                overlay.draw();
+                overlay.draw_();
             }
             
             // render markers
@@ -205,9 +216,12 @@ minimize the code.
             center : this.get_center_as_pt()
         }]);
 
-        // add mouse and touch drag listeners
+        // add mouse drag listeners
         this.mouse_drag_listener = add_dom_event('mousemove', handler, window);
-        this.touch_drag_listener = add_dom_event('touchmove', handler, window);
+//        this.touch_drag_listener = add_dom_event('touchmove', handler, window);
+
+        // set the cursor
+        this.inner_container.style.cursor = 'move';
 
         // call the user-defined drag start listener
         if(this.drag_start_listener){
@@ -217,43 +231,111 @@ minimize the code.
     Map.prototype.end_drag = function(e){
 //        console.log("Ending drag.");
         remove_dom_event(this.mouse_drag_listener);
-        remove_dom_event(this.touch_drag_listener);
+//        remove_dom_event(this.touch_drag_listener);
+
+        // reset the cursor
+        this.inner_container.style.cursor = '';
 
         // call the user-defined drag end listener
         if(this.drag_end_listener){
             this.drag_end_listener();
         }
     };
-    Map.prototype.click = function(e){
-        // call the user-defined click listener
-        if(this.click_listener){
-            this.click_listener(e);
+    Map.prototype.click = Map.prototype.mousemove = function(e){
+        var re = /click$/;
+        if(e.type.match(re)){ // click listener
+            // call the user-defined click listener
+            if(this.click_listener){
+                this.click_listener(e);
+            }
+        } else { // mousemove listener
+            if(this.mousemove_listener){
+                this.mousemove_listener(e);
+            }
         }
         
-        // calculate map coords so we can see if we're in an overlay
-        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays.length; i++){
+        // calculate canvas coords of the click so we can see if we're in a control or overlay
+        // notice that we're going to hand off the event obj to the various controls and overlays
+        // and if that control/overlay sets cancelBubble, we're going to kick out.
+        
+        var coords = new Point(e.clientX, e.clientY);
+        el = e.target;
+        while(el){
+            coords.x += el.offsetLeft;
+            coords.y += el.offsetTop;
+            el = el.offsetParent;
         }
+
+        // run the coords against the controls first
+        for(var i=0; this.controls && !e.cancelBubble && i<this.controls.length; i++){
+            var control = this.controls[i];
+            if(control.check_for_mouseover && control.check_for_mouseover(e, coords)){
+                if(e.type.match(re)){ // click listener
+                    control.click && control.click(e);
+                } else {
+                    control.mousemove && control.mousemove(e);
+                }
+            }
+        }
+
+        // now, we refigure for map coords...
+        coords.x += this.offsetLeft;
+        coords.y += this.offsetTop;
+        var latlng = this.map_types[0]['fromPointToLatLng'](coords), // we need lat/lng coords to check overlays quickly and easily
+        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays.length; i++){
+            var overlay = this.overlays[i],
+            arg = {
+                'e' : e,
+                'latlng' : latlng
+            };
+
+            if(overlay.check_for_mouseover && overlay.check_for_mouseover(arg)){
+                if(e.type.match(re)){ // click listener
+                    // call a click listener if any
+                    overlay.click && overlay.click(arg);
+                } else { // mousemove listener
+                    // call a mousemove listener if any
+                    overlay.mousemove && overlay.mousemove(e);
+                }
+            }
+        }
+        
     };
+    
+    // process_touch method is designed to isolate 
+    Map.prototype.process_touch = function(e){
+        console.log(e);
+        
+    };
+    
     Map.prototype.drag = function(anchor, e){
-        var x_moved = anchor.e.clientX - e.clientX,
-        y_moved = anchor.e.clientY - e.clientY,
+// this seems to work in Android browser, Chrome mobile. But it doesn't seem to work on iOS Safari
+        var anchor_e = anchor.e.touches ? anchor.e.touches[0] : anchor.e,
+        x_moved = anchor_e.clientX - (e.changedTouches ? e.changedTouches[0] : e).clientX,
+        y_moved = anchor_e.clientY - (e.changedTouches ? e.changedTouches[0] : e).clientY,
         new_center_pt = new Point(
             anchor.center.x + x_moved,
             anchor.center.y + y_moved
         );
 
-/* debugging only
-        if(console && console.log){
-//            console.log(anchor);
-//            console.log(e);
-//            console.log(this.offsetLeft + ' | ' + this.offsetTop);
-            console.log(x_moved + ', ' + y_moved);
-        }
-end debugging only */
-
         this.setViewport({
             'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt)
         });
+
+        // for debugging, we'll include a utility to display the mouse coords in the upper-left corner of the map
+        if(1){
+            var canvas = this.map_canvas,
+            context = this.context,
+            anchor_coords = anchor_e.clientX + ', ' + anchor_e.clientY
+            coords = (e.changedTouches ? e.changedTouches[0] : e).clientX + ', ' + (e.changedTouches ? e.changedTouches[0] : e).clientY,
+            width = Math.round(Math.max(context.measureText(coords).width, context.measureText(anchor_coords).width));
+            context.fillStyle = 'rgba(100,200,100, .5)';
+            context.fillRect(canvas.width - width - 4, 0, width + 4, 40);
+            context.fillStyle = 'rgba(255,255,255, 1)';
+            context.fillText(anchor_coords, canvas.width - width - 2, 16);
+            context.fillText(coords, canvas.width - width - 2, 36);
+//            console.log(e);
+        }
         
         if(this.drag_listener){
             this.drag_listener({
@@ -261,6 +343,12 @@ end debugging only */
                 'anchor' : anchor
             });
         }
+
+        // kill the event so the screen doesn't jump around on touch devices
+        if(e.preventDefault){
+            e.preventDefault();
+        }
+        return false;
     };
     Map.prototype.resize = function(){
         var container = this.container,
@@ -272,7 +360,16 @@ end debugging only */
             canvas.width = new_width;
             this.render();
         }
-    }
+    };
+    Map.prototype['getMapType'] = function(){
+        return this.map_types;
+    };
+    Map.prototype['getCanvas'] = function(){
+        return this.canvas;
+    };
+    Map.prototype['getContext'] = function(){
+        return this.context;
+    };
     
     
     
@@ -316,17 +413,24 @@ end debugging only */
         tileWidth = this.options['tileWidth'] || 256,
         zoom = this.map['getZoom'](),
         pi = Math.PI,
-        lng = (x - (256 * Math.pow(2, zoom - 1))) / (256 * Math.pow(2, zoom) / 360),
+        lng = (x - (256 * Math.pow(2, zoom - 1))) / (256 * Math.pow(2, zoom) / 360), // ((x-(256*(2^zoom-1)))/((256*(2^zoom))/360)
         e = (y - (256 * Math.pow(2, zoom - 1))) / (-256 * (Math.pow(2, zoom)) / (2 * pi)),
         lat = ((2 * Math.atan(Math.exp(e))) - (pi / 2)) / (pi / 180);
         
         lat = Math.max(lat, -90);
         lat = Math.min(lat, 90);
 
+        while(lng < -180){
+            lng += 360;
+        }
+        while(lng > 180){
+            lng -= 360;
+        }
+/*
         if(lng < -180 || lng > 180){
             lng = lng % 360;
         }
-        
+*/        
         return new LatLng(lat, lng);
     };
     MapType.prototype['resolveTileUrl'] = function(x, y, zoom){
@@ -398,6 +502,39 @@ end debugging only */
         };
     }
     extend_class(MapType.STREET_MAP, MapType);
+
+
+
+
+
+    function Overlay(opt_options){
+    }
+        
+    // draw_ method loops through the map, calling the overlay's own draw method to
+    // tile it appropriately. It hands the position of the overlay's origin as a Point
+    Overlay.prototype.draw_ = function(){
+        if(this.options['map']){ // if we don't have a map, there's no point
+            var opt_options = this.options,
+            map = opt_options['map'],
+            context = map.context,
+            map_type = map.map_types[0],
+            canvas = map.map_canvas,
+            position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
+            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+            while(position.x - map.offsetLeft < canvas.width){
+
+                this.draw(position);
+
+                // increment the position
+                position.x += map_type.total_tiles * map_type.tile_width;
+            }
+        }
+    }
+    Overlay.prototype.click = function(e){
+        e.cancelBubble;
+        return false;
+    }
+
     
     
     
@@ -405,6 +542,123 @@ end debugging only */
     function Marker(opt_options){
         this['setOptions'](opt_options);
     }
+    extend_class(Marker, Overlay);
+    Marker.prototype.draw = function(position){
+        if(this.options['map']){
+            var opt_options = this.options,
+            map = opt_options['map'],
+            context = map.context,
+            map_type = map.map_types[0],
+            canvas = map.map_canvas;
+            
+            if(typeof(opt_options['icon']) == 'string'){ // if we have a custom icon url given, we'll need to get it and draw it in the correct place
+                var img = this.img;
+                if(img){ // if we already have the image
+                    var anchor = opt_options['anchor'] = opt_options['anchor'] || new Point( // get the provided anchor or calculate it at the bottom center of the image
+                        Math.round(img.width / 2),
+                        img.height
+                    ),
+                    imgX = position.x - anchor.x - map.offsetLeft,
+                    imgY = position.y - anchor.y - map.offsetTop;
+                    context.drawImage(img, imgX, imgY);
+                    if(!opt_options['shape']){
+                        opt_options['shape'] = [
+                            new Point(-anchor.x, anchor.y), // upper-left
+                            new Point(-anchor.x, 0), // lower-left
+                            new Point(anchor.x, 0), // lower-right
+                            new Point(anchor.x, anchor.y), // upper-right
+                            new Point(-anchor.x, anchor.y) // upper-left
+                        ];
+                    }
+                } else {
+                    img = this.img = new Image;
+                    img.onload = create_method_closure(this, Marker.prototype.draw_);
+                    img.src = opt_options['icon']
+                }
+            } else if(typeof(opt_options['icon']) == 'function'){ // if we have a custom icon draw method given, we'll call it and hand off everything it will need to do its job
+                opt_options['icon'](position); // we assume you can access the map through the opt_options you provided, so you should be able to get the other stuff from it, too.
+            } else { // if we're drawing a standard marker
+                var pole_width = 6,
+                pole_half = Math.round(pole_width / 2),
+                pole_height = 30,
+                startingPos = new Point(position.x - pole_half - map.offsetLeft, position.y - pole_height - map.offsetTop),
+                anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
+                flag_height = pole_height * .75,
+                txt_width = opt_options['label'] ? context.measureText(opt_options['label']).width : 0,
+                flag_width = Math.max(32, txt_width + 10),
+                flag_x = startingPos.x + pole_half + 1,
+                flag_perspective_difference = Math.round(pole_half * .75);
+                context.lineWidth = 1;
+                if(opt_options['label_font']){
+                    context.font = opt_options['label_font'] || '14px Arial';
+                }
+
+                // draw the flag
+                context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
+                context.beginPath();
+                context.moveTo(startingPos.x + pole_width, startingPos.y);
+                context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
+                context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
+                context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
+                context.fill();
+
+                // draw the flagpole
+                for(var i=0; i < pole_width; i++){
+                    var rgb_val = 175 - (50 * Math.max(i - pole_half, 0));
+                    context.beginPath();
+                    context.moveTo(startingPos.x + i, startingPos.y);
+                    context.lineTo(anchorPos.x, anchorPos.y);
+                    context.strokeStyle = 'rgba(' + rgb_val + ', ' + rgb_val + ', ' + rgb_val + ', 1)';
+                    context.stroke();
+                }
+                
+                // draw the cap of the flagpole
+                context.beginPath();
+                context.moveTo(startingPos.x, startingPos.y);
+                context.bezierCurveTo(startingPos.x, startingPos.y - 2, startingPos.x + pole_width, startingPos.y - 2, startingPos.x + pole_width, startingPos.y);
+                context.bezierCurveTo(startingPos.x + pole_width, startingPos.y + 2, startingPos.x, startingPos.y + 2, startingPos.x, startingPos.y);
+                context.fillStyle = 'rgba(175, 175, 175, 1)';
+                context.fill();
+                
+                // draw the label, if any
+                if(opt_options['label']){
+                    var txt_x = Math.round((flag_width - txt_width) / 2) - Math.round(flag_perspective_difference * .75),
+                    txt_height = this.txt_height;
+                    if(typeof(txt_height) == 'undefined'){
+                        var txt_height_el = create_element('div', [document.createTextNode(opt_options['label'])], null, {
+                            'font' : opt_options['label_font'] || '14px Arial',
+                            'position' : 'absolute',
+                            'visibility' : 'hidden'
+                        });
+                        document.body.appendChild(txt_height_el);
+                        txt_height = this.txt_height = txt_height_el.offsetHeight;
+                        document.body.removeChild(txt_height_el);
+                    }
+                    context.fillStyle = opt_options['label_color'] || '#000';
+                    context.fillText(
+                        opt_options['label'],
+                        startingPos.x + pole_width + txt_x,
+                        startingPos.y + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
+                    );
+                }
+                
+                if(!opt_options['shape']){
+                    // establish the mouseover zone
+                    var flag_bottom = -(flag_height - pole_height);
+                    opt_options['shape'] = [
+                        new Point(0, 0), // anchor
+                        new Point(-pole_half, -pole_height), // top-left corner of flagpole
+                        new Point(pole_half + flag_width, -pole_height), // top-right corner of flag
+                        new Point(pole_half + flag_width - flag_perspective_difference, flag_bottom), // bottom-right corner of flag
+                        new Point(pole_half - flag_perspective_difference, flag_bottom), // bottom-left corner of flag
+                        new Point(0, 0) // anchor
+                    ];
+                }
+            }
+        }
+    };
+
+/*
     Marker.prototype.draw = function(){
         if(this.options['map']){
             var opt_options = this.options,
@@ -416,13 +670,12 @@ end debugging only */
             position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
 //            while(position.x < canvas.width - map.offsetLeft){
             while(position.x - map.offsetLeft < canvas.width){
-// TODO: add support for tiling, in case the same location is displayed more than once
                 if(opt_options['icon']){ // if we have an icon given, we'll need to get it and draw it in the correct place
                     var img = this.img
                     if(img){ // if we have the image already
-                        var anchor = new Point( // get the anchoring point, which is relative to the upper-left corner of the marker. If we don't have one, we'll anchor it the center of the bottom of the image
-                            opt_options['anchor'] ? opt_options['anchor'].x : Math.round(img.width / 2),
-                            opt_options['anchor'] ? opt_options['anchor'].y : img.height
+                        var anchor = opt_options['anchor'] = opt_options['anchor'] || new Point( // get the anchoring point, which is relative to the upper-left corner of the marker. If we don't have one, we'll anchor it the center of the bottom of the image
+                            Math.round(img.width / 2),
+                            img.height
                         ),
                         imgX = position.x - anchor.x - map.offsetLeft,
                         imgY = position.y - anchor.y - map.offsetTop;
@@ -432,6 +685,12 @@ end debugging only */
                         img.src = opt_options['icon'];
                         img.onload = create_method_closure(this, Marker.prototype.draw);
                     }
+                } else if(opt_options['draw']){ // if the user provided a custom draw function (i.e., to draw the marker using canvas methods), let's call it
+                    opt_options['draw']({
+                        'context' : context,
+                        'offsetLeft' : map.offsetLeft,
+                        'offsetTop' : map.offsetTop
+                    });
                 } else { // if we're drawing a standard marker, let's do it.
                     var startingPos = new Point(position.x - 3 - map.offsetLeft, position.y - 30 - map.offsetTop),
                     anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
@@ -502,6 +761,8 @@ end debugging only */
             }
         }
     };
+*/
+
     Marker.prototype['setOptions'] = function(opt_options){
         this.options = this.options || {}; // default options
         for(var i in opt_options){
@@ -518,9 +779,59 @@ end debugging only */
         var map = this.options['map'];
         if(map){
             map.addOverlay(this, 1);
-            this.draw();
+            this.draw_();
         }
         this.txt_height = undefined;
+    };
+    
+    Marker.prototype.check_for_mouseover = function(arg){
+        var opt_options = this.options,
+        position = opt_options['position'],
+        map = opt_options['map'],
+        map_type = map.map_types[0],
+        anchor = map_type['fromLatLngToPoint'](position),
+        shape = opt_options['shape'],
+        latlng_shape = [],
+        bounds = new LatLngBounds;
+        
+
+        // calculate the latlng coords of the marker shape
+        for(var i = 0; i < shape.length; i++){
+//            var pt = map_type['fromPointToLatLng'](shape[i]);
+            var shape_pt = shape[i],
+            map_pt = new Point(anchor.x + shape_pt.x, anchor.y + shape_pt.y),
+            latlng = map_type['fromPointToLatLng'](map_pt);
+            latlng_shape.push(latlng);
+            bounds.extend(latlng);
+        }
+        
+        // check if the point is even inside the bounds of the thing
+        if(!bounds['contains'](arg['latlng'])){
+            return 0;
+        }
+        
+        // calculate an endpoint for our ray to do ray casting (i.e., calc lng coord that is outside the marker)
+        var outside_point = new LatLng(arg['latlng'].lat, bounds.sw.lng - 1);
+        
+        // check the number of intersections
+        var intersections = 0;
+        for(var i=0; i<latlng_shape.length - 1; i++){
+            var pt1 = latlng_shape[i],
+            pt2 = latlng_shape[i + 1],
+            multiplier = (pt2.lat - pt1.lat) / (pt2.lng - pt1.lng),
+            offset = pt2.lat - multiplier * pt2.lng,
+            x = (arg['latlng'].lat - offset) / multiplier;            
+            // the formula for the segment between pt1 and pt2 should be y = ((y2 - y1) / (x2 - x1)) * x + offset
+            if(x > outside_point.lng &&
+                x <= arg['latlng'].lng &&
+                arg['latlng'].lat >= Math.min(pt1.lat, pt2.lat) &&
+                arg['latlng'].lat <= Math.max(pt1.lat, pt2.lat)){
+                intersections++;
+            }
+        }
+        
+        // return whether or not intersections is odd
+        return intersections % 2;
     };
     make_public('Marker', Marker);
     
@@ -533,7 +844,9 @@ end debugging only */
     
     
     function LatLngBounds(){
-        this.extend(arguments);
+        if(arguments.length){
+            this.extend(arguments);
+        }
     }
     LatLngBounds.prototype['extend'] = function(){
         for(var i=0; i<arguments.length; i++){
@@ -547,15 +860,20 @@ end debugging only */
                 this.sw = new_latlng;
             }
             if(this.ne){
-                this.new = new LatLng(
-                    Math.max(this.sw.lat, new_latlng.lat),
-                    Math.max(this.sw.lng, new_latlng.lng)
+                this.ne = new LatLng(
+                    Math.max(this.ne.lat, new_latlng.lat),
+                    Math.max(this.ne.lng, new_latlng.lng)
                 );
             } else {
                 this.ne = new_latlng;
             }
         }
     };
+    LatLngBounds.prototype['contains'] = function(latlng){
+        var sw = this.sw,
+        ne = this.ne;
+        return latlng.lat >= sw.lat && latlng.lat <= ne.lat && latlng.lng >= sw.lng && latlng.lng <= ne.lng;
+    }
     make_public('LatLngBounds', LatLngBounds);
     
     
@@ -658,7 +976,7 @@ end debugging only */
     
     
     function remove_dom_event(event_obj){
-        event_obj.target.removeEventListener(
+        (event_obj.target || window).removeEventListener(
             event_obj.type,
             event_obj.listener,
             event_obj.use_capture
