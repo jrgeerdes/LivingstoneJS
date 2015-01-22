@@ -9,6 +9,17 @@ minimize the code.
 
 ******************************************************************************/
 
+
+/*****
+
+TODO:
+
+- Intro a Polygon class, which will have a contains method. Use that for the marker shape, marker mouseover, etc.
+
+
+*****/
+
+
 (function(){
     // Map is why we're here!
     function Map(el, opt_options){
@@ -17,7 +28,7 @@ minimize the code.
         remove_kids(el);
 
         var map_canvas = this.map_canvas = create_element('canvas', null, {
-            'class' : 'osm_webgl-container',
+            'class' : 'osm_webgl-' + 'container',
             'width' : opt_options['canvas_x_resolution'] || el.offsetWidth,
             'height' : opt_options['canvas_y_resolution'] || el.offsetHeight
         });
@@ -25,7 +36,7 @@ minimize the code.
             this.inner_container = create_element(
                 'div',
                 [map_canvas], {
-                    'class' : 'osm_webgl-style'
+                    'class' : 'osm_webgl-' + 'style'
                 }, {
                     'position' : 'relative'
 //                    'cursor' : 'move'
@@ -33,7 +44,34 @@ minimize the code.
             )
         );
         
+        // initialize obj events
+        this.listeners = {
+            'click' : [],
+            'map_loaded' : [],
+            'map_type_changed' : [],
+            'viewport_changed' : [],
+            'map_render' : [],
+            'overlay_added' : [],
+            'overlay_removed' : [],
+            'drag_start' : [],
+            'drag_end' : [],
+            'click' : [],
+            'mousemove' : [],
+            'drag' : [],
+            'resize' : []
+        };
+
+
         this.resize(); // set the height and width of the canvas, initialize the resize listener
+        
+        // initialize the controls
+        // we use timeouts here to make them asynchronous, simulate multithreading. Hopefully, this will improve performance?
+        if(!opt_options['no_zoom_control']){
+            setTimeout(
+                create_method_closure(this, function(){new ZoomControl({'map':this})}),
+                0
+            );
+        }
         
         this.init_env();
         
@@ -44,11 +82,14 @@ minimize the code.
         if(opt_options['viewport']){
             this['setViewport'](opt_options['viewport']);
         }
+
         
         // load listener
-        if(this.map_loaded_listener){
-            this.map_loaded_listener();
-        }
+        map_events.process_event.apply(this, ['map_loaded']);
+
+//        if(this.map_loaded_listener){
+//            this.map_loaded_listener();
+//        }
     }
     make_public('Map', Map); // export to the public namespace
     Map.prototype.init_env = function(){
@@ -93,9 +134,10 @@ minimize the code.
                 this.map_types = [new map_type(this)]
         }
         this.render();
-        if(this.map_type_change_listener){
-            this.map_type_change_listener();
-        }
+        map_events.process_event.apply(this, ['map_type_change']);
+//        if(this.map_type_change_listener){
+//            this.map_type_change_listener();
+//        }
     };
     Map.prototype['setViewport'] = function(new_viewport){
         var viewport = this.viewport = this.viewport || {},
@@ -110,9 +152,10 @@ minimize the code.
             viewport[i] = new_viewport[i];
         }
         this.render();
-        if(this.viewport_change_listener){
-            this.viewport_change_listener();
-        }
+        map_events.process_event.apply(this, ['viewport_changed'])
+//        if(this.viewport_change_listener){
+//            this.viewport_change_listener();
+//        }
     };
     Map.prototype.get_center_as_pt = function(){
         var canvas = this.map_canvas,
@@ -164,9 +207,10 @@ minimize the code.
         
             // render infowindows
 
-            if(this.map_render_listener){
-                this.map_render_listener();
-            }
+            map_events.process_event.apply(this, ['map_render']);
+//            if(this.map_render_listener){
+//                this.map_render_listener();
+//            }
         }
     };
     Map.prototype['getZoom'] = function(){
@@ -174,12 +218,12 @@ minimize the code.
     };
     Map.prototype['zoomOut'] = function(){
         this['setViewport']({
-            'zoom' : Math.max(0, this.viewport['zoom'] - 1)
+            'zoom' : Math.max(this.getMapType()[0].options['min_zoom'], this.viewport['zoom'] - 1)
         });
     };
     Map.prototype['zoomIn'] = function(){
         this['setViewport']({
-            'zoom' : Math.max(0, this.viewport['zoom'] + 1)
+            'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
         });
     };
     Map.prototype.addOverlay = function(overlay, dont_render){
@@ -190,9 +234,10 @@ minimize the code.
             this.render();
         }
         
-        if(this.overlay_added_listener){
-            this.overlay_added_listener();
-        }
+        map_events.process_event.apply(this, ['overlay_added']);
+//        if(this.overlay_added_listener){
+//            this.overlay_added_listener();
+//        }
     };
     Map.prototype.removeOverlay = function(overlay, dont_render){
         var overlays = this.overlays;
@@ -206,9 +251,10 @@ minimize the code.
             this.render();
         }
         
-        if(this.overlay_removed_listener){
-            this.overlay_removed_listener();
-        }
+        map_events.process_event.apply(this, ['overlay_removed']);
+//        if(this.overlay_removed_listener){
+//            this.overlay_removed_listener();
+//        }
     };
     Map.prototype.start_drag = function(e){
         var handler = create_method_closure(this, Map.prototype.drag, [{
@@ -224,34 +270,38 @@ minimize the code.
         this.inner_container.style.cursor = 'move';
 
         // call the user-defined drag start listener
-        if(this.drag_start_listener){
-            this.drag_start_listener();
-        }
+        map_events.process_event.apply(this, ['drag_start']);
+//        if(this.drag_start_listener){
+//            this.drag_start_listener();
+//        }
     };
     Map.prototype.end_drag = function(e){
 //        console.log("Ending drag.");
-        remove_dom_event(this.mouse_drag_listener);
+        this.mouse_drag_listener && remove_dom_event(this.mouse_drag_listener);
 //        remove_dom_event(this.touch_drag_listener);
 
         // reset the cursor
         this.inner_container.style.cursor = '';
 
         // call the user-defined drag end listener
-        if(this.drag_end_listener){
-            this.drag_end_listener();
-        }
+        map_events.process_event.apply(this, ['drag_end']);
+//        if(this.drag_end_listener){
+//            this.drag_end_listener();
+//        }
     };
     Map.prototype.click = Map.prototype.mousemove = function(e){
         var re = /click$/;
         if(e.type.match(re)){ // click listener
             // call the user-defined click listener
-            if(this.click_listener){
-                this.click_listener(e);
-            }
+            map_events.process_event.apply(this, ['click']);
+//            if(this.click_listener){
+//                this.click_listener(e);
+//            }
         } else { // mousemove listener
-            if(this.mousemove_listener){
-                this.mousemove_listener(e);
-            }
+            map_events.process_event.apply(this, ['mousemove']);
+//            if(this.mousemove_listener){
+//                this.mousemove_listener(e);
+//            }
         }
         
         // calculate canvas coords of the click so we can see if we're in a control or overlay
@@ -339,12 +389,16 @@ minimize the code.
 //            console.log(e);
         }
         
-        if(this.drag_listener){
-            this.drag_listener({
-                'e' : e,
-                'anchor' : anchor
-            });
-        }
+        map_events.process_event.apply(this, ['drag', {
+            'e' : e,
+            'anchor' : anchor
+        }]);
+//        if(this.drag_listener){
+//            this.drag_listener({
+//                'e' : e,
+//                'anchor' : anchor
+//            });
+//        }
 
         // kill the event so the screen doesn't jump around on touch devices
         if(e.preventDefault){
@@ -368,9 +422,10 @@ minimize the code.
         }
         
         // if we have a user-defined resize listener
-        if(this.resize_listener){
-            this.resize_listener();
-        }
+        map_events.process_event.apply(this, ['resize']);
+//        if(this.resize_listener){
+//            this.resize_listener();
+//        }
 
         var resize_closure = this.resize_closure = this.resize_closure || create_method_closure(this, Map.prototype.resize);
 //        this.resize_timer = setTimeout(resize_closure, 500);
@@ -384,6 +439,8 @@ minimize the code.
     Map.prototype['getContext'] = function(){
         return this.context;
     };
+
+
     
     
     
@@ -543,7 +600,7 @@ minimize the code.
                 position.x += map_type.total_tiles * map_type.tile_width;
             }
         }
-    }
+    };
     Overlay.prototype.click = function(e){
         var opt_options = this.options,
         infowindows = this.infowindows
@@ -554,20 +611,25 @@ minimize the code.
         }
         
         // if we have a user-defined click listener
-        if(this.click_listener){
-            this.click_listener(e);
-        }
+        map_events.process_event.apply(this, ['click']);
+//        if(this.click_listener){
+//            this.click_listener(e);
+//        }
         
         e.cancelBubble;
         return false;
-    }
-
+    };
     
     
     
     
     function Marker(opt_options){
         this['setOptions'](opt_options);
+        this.listeners = {
+            'click' : [],
+            'mouseover' : [],
+            'mouseout' : []
+        };
     }
     extend_class(Marker, Overlay);
     Marker.prototype.draw = function(position){
@@ -794,23 +856,30 @@ minimize the code.
 
     Marker.prototype['setOptions'] = function(opt_options){
         this.options = this.options || {}; // default options
-        for(var i in opt_options){
-            if(i == 'map' && opt_options[i] !== this.options['map']){
-                if(this.options['map'] && this.options['map'].removeOverlay){
-                    this.options['map'].removeOverlay(this);
-                }
-                if(opt_options['map'] && opt_options['map'].addOverlay){
-                    opt_options['map'].addOverlay(this);
-                }
+        
+        if(opt_options){
+            // if a map option is provided, and we've already got one, let's remove the marker from the original
+            if(typeof(opt_options['map']) != 'undefined' && this.options['map'] && this.options['map'] !== opt_options['map']){
+                this.options['map'].removeOverlay(this);
             }
-            this.options[i] = opt_options[i];
+            for(var i in opt_options){
+                if(i == 'map' && opt_options[i] !== this.options['map']){
+                    if(this.options['map'] && this.options['map'].removeOverlay){
+                        this.options['map'].removeOverlay(this);
+                    }
+                    if(opt_options['map'] && opt_options['map'].addOverlay){
+                        opt_options['map'].addOverlay(this);
+                    }
+                }
+                this.options[i] = opt_options[i];
+            }
+            var map = this.options['map'];
+            if(map){
+                map.addOverlay(this, 1);
+                this.draw_();
+            }
+            this.txt_height = undefined;
         }
-        var map = this.options['map'];
-        if(map){
-            map.addOverlay(this, 1);
-            this.draw_();
-        }
-        this.txt_height = undefined;
     };
     
     Marker.prototype.check_for_mouseover = function(arg){
@@ -861,9 +930,12 @@ minimize the code.
         
         // if the number of intersections is odd (i.e., there is a remainder when divided by 2), then
         // set the map cursor to pointer and return true
+        
+        // TODO: This logic isn't working correctly. It doesn't seem to fire the else.
         if(intersections % 2){
             map.inner_container.style.cursor = 'pointer';
             arg['e'].cancelBubble = 1;
+//            arg['e'].stopPropagation && arg['e'].stopPropagation();
             return 1;
         } else {
             map.inner_container.style.cursor = '';
@@ -875,9 +947,142 @@ minimize the code.
     
     
     function InfoWindow(opt_options){
+        this.container = create_element(
+            'div',[
+                this.controlsContainer = create_element(
+                    'div', [
+                        create_element(
+                            'div', [
+                                document.createTextNode('x')
+                            ], {
+                                'class':'osm_webgl-' + 'infowindow-close',
+                                'onclick' : create_method_closure(this, function(e){
+                                    e.stopPropagation && e.stopPropagation();
+                                    InfoWindow.prototype['close'].apply(this, []);
+                                })
+                            }
+                        )
+                    ], {
+                        'class' : 'osm_webgl-' + 'infowindow-controls'
+                    }
+                ),
+                this.contentContainer = create_element('div', null, {'class':'osm_webgl-' + 'infowindow-content'}), // content container
+                this.leg = create_element('div', null, {'class':'osm_webgl-' + 'infowindow-base'}) // the leg which stems from the location on the map
+            ],{
+                'class' : 'osm_webgl-' + 'infowindow'
+            }
+        );
+        this.setOptions(opt_options);
     }
+    extend_class(InfoWindow, Overlay);
+
+    InfoWindow.prototype.draw = function(position){
+        var containerStyle = this.container.style,
+        map = this.options['map'];
+        containerStyle.left = (position.x - map.offsetLeft) + 'px'; // make these next two lines a bit less brittle, in case someone changes the way the leg looks
+        containerStyle.top = (position.y - this.height - map.offsetTop) + 'px';
+    };
+
+    InfoWindow.prototype.setOptions = function(opt_options){
+        var options = this.options;
+        if(typeof(options) == 'undefined'){ // if not defined, let's define it
+            options = this.options = {};
+
+            // define a getter/setter for the map property because it's going to require some gymnastics
+            Object.defineProperty(options, 'map', {
+                get : function(){
+                    if(this['overlay'] && this['overlay'].options['map']){ // if the infowindow is attached to an overlay, we'll return the overlay's map
+                        return this['overlay'].options['map'];
+                    } else { // otherwise, we'll return the infowindow's overlay
+                        return this.map_;
+                    }
+                },
+                set : function(new_map){
+                    if(this['overlay']){ // if the infowindow is attached to an overlay, we'll set the overlay's map
+                        this['overlay'].options['map'] = new_map;
+                    }
+                    this.map_ = new_map; // set the infowindow's map
+                }
+            });
+
+            // define a getter/setter for the position property because it's going to require some gymnastics, too
+            Object.defineProperty(options, 'position', {
+                get : function(){
+                    if(this['overlay'] && this['overlay'].options['position']){ // if the infowindow is attached to an overlay with a specific position, we'll return the overlay's position
+                        return this['overlay'].options['position'];
+                    } else{ // otherwise, we'll return the infowindow's position
+                        return this.position_;
+                    }
+                },
+                set : function(new_position){
+                    if(this['overlay']){ // if the infowindow is attached to an overlay, we'll set the overlay's position
+                        this['overlay'].options['position'] = new_position;
+                    }
+                    this.position_ = new_position;
+                }
+            });
+        }
+        
+        if(opt_options){
+            // if we have a map already, and we're moving to a new map, remove this from the old one
+            if(typeof(opt_options['map']) != 'undefined' && options['map'] && opt_options['map'] !== options['map']){
+                options['map'].removeOverlay(this);
+            }
+            // if we're assigning the infowindow to an overlay...
+            if(typeof(opt_options['overlay']) != 'undefined' && opt_options['overlay'] !== options['overlay']){
+                // first, we remove the click listener from any old overlay assignment
+                if(options['overlay']){
+                    map_events['removeEvent'](this.overlay_click_listener);
+                }
+                
+                // then, we add the click listener to a new overlay if applicable
+                if(opt_options['overlay']){
+                    this.overlay_click_listener = map_events['addEvent'](opt_options['overlay'], 'click', create_method_closure(this, InfoWindow.prototype.open));
+                }
+            }
+            for(var i in opt_options){
+                options[i] = opt_options[i];
+            }
+            var map = this.options['map'];
+            if(map){
+                map.addOverlay(this, 1);
+                this.draw_();
+            }
+        }
+    };    
+    
+    InfoWindow.prototype['open'] = function(opt_options){
+        this.setOptions(opt_options);
+        var container = this.container,
+        options = this.options,
+        map = this.options['map'];
+        if(map){
+            container.style.visibility = 'hidden';
+            map.inner_container.appendChild(container);
+            if(options['content']){
+                this.contentContainer.appendChild(options['content']);
+            }
+            this.height = container.offsetHeight;
+            this.width = container.offsetWidth;
+            map.addOverlay(this, 1);
+            this.draw_();
+            container.style.visibility = 'visible';
+        }
+    };
+    
+    InfoWindow.prototype['close'] = function(){
+        var container = this.container;
+        container.parentNode.removeChild(container);
+        this.options['map'].removeOverlay(this);
+    };
+    
+    InfoWindow.prototype.check_for_mouseover = function(){
+        return;
+    };
     make_public('InfoWindow', InfoWindow);
     
+
+
     
     function LatLngBounds(){
         if(arguments.length){
@@ -930,17 +1135,119 @@ minimize the code.
 
 
 
-    function MapControl(map, opt_options){
+    function ZoomControl(opt_options){
+        var options = this.options = opt_options || {},
+
+        // build the control
+        container = this.container = create_element(
+            'div',[
+                this.zoomInButton = create_element(
+                    'div',[
+                        document.createTextNode('+')
+                    ], {
+                        'class' : 'osm_webgl-' + 'zoomcontrol-in ' + 'osm_webgl-' + 'zoomcontrol-inactive',
+                        'onclick' : create_method_closure(this, ZoomControl.prototype.zoomIn)
+                    }
+                ),
+                this.zoomOutButton = create_element(
+                    'div', [
+                        document.createTextNode('-')
+                    ], {
+                        'class' : 'osm_webgl-' + 'zoomcontrol-out ' + 'osm_webgl-' + 'zoomcontrol-inactive',
+                        'onclick' : create_method_closure(this, ZoomControl.prototype.zoomOut)
+                    }
+                )
+            ],{
+                'class' : 'osm_webgl-' + 'zoomcontrol'
+            }
+        );
         
+        this.checkStatus();
+        
+        // append the control to the given container element or the map inner container
+        (options['container'] || options['map'].inner_container).appendChild(container);
+        
+        map_events['addEvent'](this.options['map'], 'viewport_changed', create_method_closure(this, ZoomControl.prototype.checkStatus));
     }
     
+    ZoomControl.prototype.zoomIn = function(e){
+        e.stopPropagation && e.stopPropagation();
+        var options = this.options;
+        options['map'] && options['map']['zoomIn']();
+//        this.checkStatus();
+    };
+    
+    ZoomControl.prototype.zoomOut = function(e){
+        e.stopPropagation && e.stopPropagation();
+        var options = this.options;
+        options['map'] && options['map']['zoomOut']();
+//        this.checkStatus();
+    };
+    
+    ZoomControl.prototype.checkStatus = function(){
+        var map = this.options['map'],
+        maptype = map['getMapType']()[0].options,
+        re = /-(in)?active\b/;
+
+        // zoom in button
+        if(maptype['max_zoom'] <= map['getZoom']()){ // if we're on the high end of the zoom range, let's gray out the zoom in button
+            this.zoomInButton.className = this.zoomInButton.className.replace(re, '-inactive');
+        } else {
+            this.zoomInButton.className = this.zoomInButton.className.replace(re, '-active');
+        }
+        
+        // zoom out button
+        if(maptype['min_zoom'] >= map['getZoom']()){ // if we're on the low end of the zoom range, let's gray out the zoom out button
+            this.zoomOutButton.className = this.zoomOutButton.className.replace(re, '-inactive');
+        } else {
+            this.zoomOutButton.className = this.zoomOutButton.className.replace(re, '-active');
+        }
+    };
     
     
+    // Map Event Handling
+    var map_events = {};
+    map_events['addEvent'] = function(obj, listener, method){ // as the name suggests, adds an event listener to an object
+        if(obj.listeners[listener]){
+            obj.listeners[listener].push(method);
+        }
+        return {
+            obj : obj,
+            listener : listener,
+            method : method
+        };
+    };
+
+    map_events['removeEvent'] = function(event_obj){ // as the name suggests, removes an event listener from an object
+        var listeners = event_obj.obj.listeners[event_obj.listener];
+        for(var i=0; listeners && i < listeners.length; i++){
+            var listener = listeners[i];
+            if(listener === event_obj.method){
+                listeners.splice(i, 1);
+            }
+        }
+    };
+
+    map_events['trigger'] = function(obj, listener){ // as the name suggests, triggers an event listener on an object
+        map_events.process_event.apply(obj, [listener]);
+    };
+
+    // process_event is designed to process an array of event listeners, triggering all of the appropriate methods
+    // it is designed to be run in the context of the triggering object
+    map_events.process_event = function(){
+        var listener = arguments[0],
+        other_args = Array.prototype.slice.call(arguments, 1);
+        for(var i=0; this.listeners[listener] && i < this.listeners[listener].length; i++){
+            var l = this.listeners[listener][i];
+            l.apply(this, other_args);
+        }
+    };
+    
+    make_public('events', map_events);
     
     
     
     // Utility functions
-    
     function extend_class(child_class, parent_class){
         var intermediary_class = function(){};
         intermediary_class.prototype = parent_class.prototype;
@@ -1018,7 +1325,7 @@ minimize the code.
             event_obj.use_capture
         );
     }
-    make_public('removeDOMistener', remove_dom_event);
+    make_public('removeDOMListener', remove_dom_event);
     
     
     
