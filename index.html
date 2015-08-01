@@ -28,7 +28,7 @@
                         'center' : latlng,
                         'zoom' : 12
                     },
-                    'disable_webgl' : 1
+                    'disable_webgl' : 0
                 });
                 
                 // place a marker
@@ -51,6 +51,18 @@
                 var infowindow = window['test_infowindow'] = new window['_osm']['InfoWindow']({
                     'overlay' : marker,
                     'content' : infowindow_content
+                });
+                
+                // place a line
+                var line = window['test_line'] = new window['_osm']['Line']({
+                    'position' : [
+                        latlng,
+                        new window['_osm']['LatLng'](latlng.lat + .05, latlng.lng - .05),
+                        new window['_osm']['LatLng'](latlng.lat, latlng.lng - .1),
+                        new window['_osm']['LatLng'](latlng.lat - .05, latlng.lng - .05),
+                        latlng
+                    ],
+                    'map' : map
                 });
             });
         </script>

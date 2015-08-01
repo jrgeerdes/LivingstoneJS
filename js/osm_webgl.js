@@ -14,7 +14,6 @@ minimize the code.
 
 TODO:
 
-- Intro a Polygon class, which will have a contains method. Use that for the marker shape, marker mouseover, etc.
 
 
 *****/
@@ -38,7 +37,8 @@ TODO:
                 [map_canvas], {
                     'class' : 'osm_webgl-' + 'style'
                 }, {
-                    'position' : 'relative'
+                    'position' : 'relative',
+                    'overflow' : 'hidden'
 //                    'cursor' : 'move'
                 }
             )
@@ -97,7 +97,8 @@ TODO:
         context = null,
         opt_options = this.options;
         if(map_canvas && map_canvas.getContext){
-            if(!opt_options['disable_webgl']){ // if we're dealing with webGL and can do 3d stuff
+            if(0){ // comment out this line to enable webgl
+//            if(!opt_options['disable_webgl']){ // if we're dealing with webGL and can do 3d stuff
                 this.use_webgl = 1;
                 context = map_canvas.getContext('webgl');
                 if(!context){
@@ -107,8 +108,8 @@ TODO:
             if(!context){ // if webgl is unavailable, let's bounce to 2d canvas stuff
                 this.use_webgl = 0;
                 context = map_canvas.getContext('2d');
-                context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
-                context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+//                context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
+//                context.fillRect(0, 0, map_canvas.width, map_canvas.height);
             }
         }
         this.context = context;
@@ -116,11 +117,14 @@ TODO:
         // set up the event listeners
         var mousedownlistener = create_method_closure(this, Map.prototype.start_drag),
         mouseuplistener = create_method_closure(this, Map.prototype.end_drag),
-        touch_processor = create_method_closure(this, Map.prototype.process_touch);
+        touchstart_listener = create_method_closure(this, Map.prototype.start_touch);
+        touchend_listener = create_method_closure(this, Map.prototype.end_touch);
         add_dom_event('mousedown', mousedownlistener, map_canvas);
-        add_dom_event('touchstart', touch_processor, map_canvas);
+        add_dom_event('touchstart', touchstart_listener, map_canvas);
         add_dom_event('mouseup', mouseuplistener); // we attach the mouseup to the window, in case someone drags off the map and releases there
-        add_dom_event('touchend', mouseuplistener);
+        add_dom_event('touchend', touchend_listener, window);
+        add_dom_event('touchleave', mouseuplistener, map_canvas);
+        add_dom_event('touchcancel', mouseuplistener, window);
         add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
         add_dom_event('mousemove', create_method_closure(this, Map.prototype.mousemove), map_canvas);
     };
@@ -171,7 +175,14 @@ TODO:
         offsetTop = 0,
         map_type = this.map_types && this.map_types[0] ? this.map_types[0] : null,
         viewport = this.viewport,
-        map_canvas = this.map_canvas;
+        map_canvas = this.map_canvas,
+        context = this.context;
+        
+        if(context){
+        context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
+        context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+        }
+        
         if(viewport && map_type){
             if(viewport['center'] && typeof(viewport['zoom']) == 'number'){ // if we have a center and zoom
                 var center_point = viewport['center'] instanceof Point ? viewport['center'] : map_type['fromLatLngToPoint'](viewport['center']);
@@ -354,11 +365,83 @@ TODO:
         
     };
     
-    // process_touch method is designed to isolate 
-    Map.prototype.process_touch = function(e){
-        console.log(e);
+    // start_touch method is designed to detect touchstart events and set up the touchmove listeners needed to respond to them.
+    Map.prototype.start_touch = function(e){
+        //kill any touch listener already activated 
+        this.touch_listener && remove_dom_event(this.touch_listener);
         
+        if(e.touches.length == 2){ // if we're dealing with a two-finger touch, we listen for pinching movements
+            var handler = create_method_closure(this, Map.prototype.pinch, [{
+                e : e
+            }]);
+            this.touch_listener = add_dom_event('touchmove', handler, window);
+        } else { // otherwise, we'll listen for a drag
+            var handler = create_method_closure(this, Map.prototype.drag, [{
+                e : e,
+                center : this.get_center_as_pt()
+            }]);
+            this.touch_listener = add_dom_event('touchmove', handler, window);
+        }
+
+        // fire any user-defined touch_start events
+        map_events.process_event.apply(this, ['touch_start']);
     };
+    
+    // end_touch is intended to kill the touch_listener
+    Map.prototype.end_touch = function(e){
+        this.touch_listener && remove_dom_event(this.touch_listener);
+        
+        // fire any user-defined touch_end events
+        map_events.process_event.apply(this, ['touch_end']);
+    };
+    
+    // pinch is intended to detect pinching movements
+    Map.prototype.pinch = function(anchor, e){
+        var start_time = anchor.start_time = anchor.start_time || (new Date).getTime(),
+        now = (new Date).getTime(),
+        orig_distance = Math.sqrt(Math.pow(anchor.e.touches[0].pageX - anchor.e.touches[1].pageX, 2) + Math.pow(anchor.e.touches[0].pageY - anchor.e.touches[1].pageY, 2)),
+        now_distance = Math.sqrt(Math.pow(e.touches[0].pageX - e.touches[1].pageX, 2) + Math.pow(e.touches[0].pageY - e.touches[1].pageY, 2));
+        
+        if(now - start_time <= 500 && // if less than a half second
+            Math.abs(now_distance - orig_distance) >= 150){ // and more than 150px difference in distance between the original pinch and this one, then
+            
+            // calculate the center of the pinch
+            var x = (anchor.e.touches[0].pageX + anchor.e.touches[1].pageX) / 2 + this.offsetLeft,
+            y = (anchor.e.touches[0].pageY + anchor.e.touches[1].pageY) / 2 + this.offsetTop,
+            el = this.map_canvas,
+            map_type = this.map_types[0],
+            curr_center = map_type['fromLatLngToPoint'](this.viewport['center']),
+            new_center;
+            while(el){
+                x -= el.offsetLeft;
+                y -= el.offsetTop;
+                el = el.offsetParent;
+            }
+                        
+            if(orig_distance > now_distance){ // if the pinch is inward
+                new_center = map_type['fromPointToLatLng'](new Point(
+                    curr_center.x - (x - curr_center.x),
+                    curr_center.y - (y - curr_center.y)
+                ));
+                this.setViewport({
+                    'center' : new_center,
+                    'zoom' : Math.max(this.getMapType()[0].options['min_zoom'], this.viewport['zoom'] - 1)
+                });
+//                this['zoomOut']();
+            } else {
+                new_center = map_type['fromPointToLatLng'](new Point(
+                    curr_center.x + ((x - curr_center.x) / 2),
+                    curr_center.y + ((y - curr_center.y) / 2)
+                ));
+                this.setViewport({
+                    'center' : new_center,
+                    'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
+                });
+//                this['zoomIn']();
+            }
+            this.end_touch();
+        }
+    }
     
     Map.prototype.drag = function(anchor, e){
 // this seems to work in Android browser, Chrome mobile. But it doesn't seem to work on iOS Safari
@@ -428,7 +511,7 @@ TODO:
 //        }
 
         var resize_closure = this.resize_closure = this.resize_closure || create_method_closure(this, Map.prototype.resize);
-//        this.resize_timer = setTimeout(resize_closure, 500);
+        this.resize_timer = setTimeout(resize_closure, 500);
     };
     Map.prototype['getMapType'] = function(){
         return this.map_types;
@@ -576,6 +659,13 @@ TODO:
 
 
 
+/************************************
+
+Overlays
+
+************************************/
+
+
 
 
     function Overlay(opt_options){
@@ -592,12 +682,19 @@ TODO:
             canvas = map.map_canvas,
             position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
             position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
-            while(position.x - map.offsetLeft < canvas.width){
 
-                this.draw(position);
+            // if we're in the displayable area, let's render the overlay.
+            // TODO: This logic probably needs to be worked on to ensure best performance. Namely, make sure the overlay is actually within the bounds of the viewport
+            if(position.x - map.offsetLeft < canvas.width){
+                while(position.x - map.offsetLeft < canvas.width){
 
-                // increment the position
-                position.x += map_type.total_tiles * map_type.tile_width;
+                    this['draw'](position);
+
+                    // increment the position
+                    position.x += map_type.total_tiles * map_type.tile_width;
+                }
+            } else {
+                this.hide && this.hide();
             }
         }
     };
@@ -619,6 +716,32 @@ TODO:
         e.cancelBubble;
         return false;
     };
+    Overlay.prototype['setOptions'] = function(opt_options){
+        this.options = this.options || {}; // default options
+        
+        if(opt_options){
+            // if a map option is provided, and we've already got one, let's remove the marker from the original
+            if(typeof(opt_options['map']) != 'undefined' && this.options['map'] && this.options['map'] !== opt_options['map']){
+                this.options['map'].removeOverlay(this);
+            }
+            for(var i in opt_options){
+                if(i == 'map' && opt_options[i] !== this.options['map']){
+                    if(this.options['map'] && this.options['map'].removeOverlay){
+                        this.options['map'].removeOverlay(this);
+                    }
+                    if(opt_options['map'] && opt_options['map'].addOverlay){
+                        opt_options['map'].addOverlay(this);
+                    }
+                }
+                this.options[i] = opt_options[i];
+            }
+            var map = this.options['map'];
+            if(map){
+                map.addOverlay(this, 1);
+                this.draw_();
+            }
+        }
+    };
     
     
     
@@ -632,7 +755,7 @@ TODO:
         };
     }
     extend_class(Marker, Overlay);
-    Marker.prototype.draw = function(position){
+    Marker.prototype['draw'] = function(position){
         if(this.options['map']){
             var opt_options = this.options,
             map = opt_options['map'],
@@ -855,29 +978,8 @@ TODO:
 */
 
     Marker.prototype['setOptions'] = function(opt_options){
-        this.options = this.options || {}; // default options
-        
+        Overlay.prototype['setOptions'].apply(this, [opt_options]);
         if(opt_options){
-            // if a map option is provided, and we've already got one, let's remove the marker from the original
-            if(typeof(opt_options['map']) != 'undefined' && this.options['map'] && this.options['map'] !== opt_options['map']){
-                this.options['map'].removeOverlay(this);
-            }
-            for(var i in opt_options){
-                if(i == 'map' && opt_options[i] !== this.options['map']){
-                    if(this.options['map'] && this.options['map'].removeOverlay){
-                        this.options['map'].removeOverlay(this);
-                    }
-                    if(opt_options['map'] && opt_options['map'].addOverlay){
-                        opt_options['map'].addOverlay(this);
-                    }
-                }
-                this.options[i] = opt_options[i];
-            }
-            var map = this.options['map'];
-            if(map){
-                map.addOverlay(this, 1);
-                this.draw_();
-            }
             this.txt_height = undefined;
         }
     };
@@ -918,7 +1020,7 @@ TODO:
             pt2 = latlng_shape[i + 1],
             multiplier = (pt2.lat - pt1.lat) / (pt2.lng - pt1.lng),
             offset = pt2.lat - multiplier * pt2.lng,
-            x = (arg['latlng'].lat - offset) / multiplier;            
+            x = (arg['latlng'].lat - offset) / multiplier;
             // the formula for the segment between pt1 and pt2 should be y = ((y2 - y1) / (x2 - x1)) * x + offset
             if(x > outside_point.lng &&
                 x <= arg['latlng'].lng &&
@@ -932,10 +1034,11 @@ TODO:
         // set the map cursor to pointer and return true
         
         // TODO: This logic isn't working correctly. It doesn't seem to fire the else.
+        console.log(intersections);
         if(intersections % 2){
             map.inner_container.style.cursor = 'pointer';
             arg['e'].cancelBubble = 1;
-//            arg['e'].stopPropagation && arg['e'].stopPropagation();
+            arg['e'].stopPropagation && arg['e'].stopPropagation();
             return 1;
         } else {
             map.inner_container.style.cursor = '';
@@ -943,6 +1046,158 @@ TODO:
     };
     make_public('Marker', Marker);
     
+
+
+    function Line(opt_options){
+        this['setOptions'](opt_options);
+        this.listeners = {
+            'click' : [],
+            'mouseover' : [],
+            'mouseout' : []
+        };
+        var bounds = this.bounds = new LatLngBounds;
+        bounds.extend.apply(bounds, this.options.position || []);
+        
+        if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
+            this.draw_();
+        }
+    }
+    extend_class(Line, Overlay);
+    
+    // TODO: A closed polyline is jagged where the two endpoints meet. This needs to be fixed.
+    Line.prototype['draw'] = function(position){
+        if(this.options['position'] && this.options['map']){ // if we have points and a map...
+            var opt_options = this.options,
+            map = opt_options['map'],
+            context = map.context,
+            map_type = map.map_types[0],
+            canvas = map.map_canvas,
+            pt0 = map_type['fromLatLngToPoint'](this.options['position'][0]);
+
+            // set the line options
+            context.save();
+            context.lineWidth = opt_options['stroke_width'] || 4;
+            context.strokeStyle = opt_options['stroke_color'] || 'rgb(0, 200, 0)';
+            context.fillStyle = opt_options['fill_color'] || 'rgb(150, 200, 150)';
+            context.beginPath();
+            context.moveTo(position.x - map.offsetLeft, position.y - map.offsetTop);
+            
+            // loop through the points to draw the line
+            for(var i=1; i < this.options['position'].length; i++){
+                var pt1 = map_type['fromLatLngToPoint'](this.options['position'][i]),
+                x_diff = pt1.x - pt0.x,
+                y_diff = pt1.y - pt0.y;
+                
+                context.lineTo(position.x + x_diff - map.offsetLeft, position.y + y_diff - map.offsetTop);
+            }
+
+            if(this instanceof Polygon && this['isClosed']()){ // if this is a polygon, we're going to fill the thing
+                context.globalAlpha = opt_options['fill_opacity'] || 1;
+                context.fill();
+            }
+
+            // stroke the line
+            context.globalAlpha = opt_options['stroke_opacity'] || 1;
+            context.stroke();
+            
+            context.restore();
+        }
+    };
+    
+    Line.prototype['extend'] = function(){
+        var position = this.options['position'] = this.options['position'] || [],
+        bounds = this.bounds;
+        for(var i=0; i<arguments.length; i++){
+            var latlng = arguments[i];
+            position.push(latlng);
+            bounds.extend(latlng);
+        }
+        this.draw_();
+    };
+    
+    Line.prototype['setOptions'] = function(opt_options){
+        Overlay.prototype['setOptions'].apply(this, [opt_options]);
+        if(this.options['position'] && this.options['map']){
+            this.draw_();
+        }
+    };
+    
+    Line.prototype['isClosed'] = function(opt_options){
+        var position = this.options['position'];
+        return position && position.length > 1 && position[0].lat == position[position.length - 1].lat && position[0].lng == position[position.length - 1].lng;
+    };
+    
+    Line.prototype.check_for_mouseover = function(arg){
+        return this.contains(arg['latlng']);
+    };
+    
+    Line.prototype['contains'] = function(point){
+        var opt_options = this.options,
+        position = opt_options['position'],
+        map = opt_options['map'],
+        map_type = map.map_types[0],
+        bounds = this.bounds
+        mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point) : point,
+        threshold = (opt_options['stroke_width'] || 4) / 2,
+        intersections = 0,
+        outside_point = new LatLng(point instanceof LatLng ? point.lat : (map_type['fromPointToLatLng'](point)).lat, bounds.sw.lng - 1),
+        intersections = 0;
+        
+        for(var i=0; i < position.length - 1; i++){
+            var pt1 = map_type['fromLatLngToPoint'](position[i]),
+            pt2 = map_type['fromLatLngToPoint'](position[i + 1]),
+            multiplier = (pt2.y - pt1.y) / (pt2.x - pt1.x),
+            offset = pt1.y - (multiplier * pt1.x),
+            should_be_y = (multiplier * mouse_pt.x) + offset,
+            x = (mouse_pt.y - offset) / multiplier;
+            
+            // check if we're over the line
+            if(mouse_pt.x >= (Math.min(pt1.x, pt2.x) - threshold) && // if the mouse is right of the left limit of the segment,
+                mouse_pt.x <= (Math.max(pt1.x, pt2.x) + threshold) && // left of the right limit of the segment, and
+                Math.abs(mouse_pt.y - should_be_y) <= threshold){ // within the threshold of where the line should be
+                return 1; // then we're moused over
+            }
+            
+            if(this instanceof Polygon && this.isClosed()){ // if this is a Polygon
+                if(x > map_type['fromLatLngToPoint'](outside_point).x &&
+                    x <= mouse_pt.x &&
+                    mouse_pt.y >= Math.min(pt1.y, pt2.y) &&
+                    mouse_pt.y <= Math.max(pt1.y, pt2.y)){
+                    intersections++;
+                }
+            }
+        }
+        
+        if(this instanceof Polygon && intersections % 2){ // if we have an odd number of intersections, we must be inside the polygonprocess_touch
+            return 1;
+        }
+    };
+    make_public('Line', Line);
+
+
+
+
+
+    
+    function Polygon(opt_options){
+        this['setOptions'](opt_options);
+        this.listeners = {
+            'click' : [],
+            'mouseover' : [],
+            'mouseout' : []
+        };
+        var bounds = this.bounds = new LatLngBounds;
+        bounds.extend.apply(bounds, this.options.position || []);
+
+        if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
+            this.draw_();
+        }
+    }
+    extend_class(Polygon, Line);
+    
+    make_public('Polygon', Polygon);
+    
+
     
     
     
@@ -1051,16 +1306,18 @@ TODO:
         }
     };    
     
-    InfoWindow.prototype['open'] = function(opt_options){
+    InfoWindow.prototype['open'] = InfoWindow.prototype.show = function(opt_options){
         this.setOptions(opt_options);
         var container = this.container,
         options = this.options,
         map = this.options['map'];
         if(map){
+            container.style.top = container.style.left = '0px';
             container.style.visibility = 'hidden';
             map.inner_container.appendChild(container);
             if(options['content']){
                 this.contentContainer.appendChild(options['content']);
+                container.style.width = this.contentContainer.offsetWidth + 'px';
             }
             this.height = container.offsetHeight;
             this.width = container.offsetWidth;
@@ -1070,9 +1327,9 @@ TODO:
         }
     };
     
-    InfoWindow.prototype['close'] = function(){
+    InfoWindow.prototype['close'] = InfoWindow.prototype.hide = function(){
         var container = this.container;
-        container.parentNode.removeChild(container);
+        container.parentNode && container.parentNode.removeChild(container);
         this.options['map'].removeOverlay(this);
     };
     
