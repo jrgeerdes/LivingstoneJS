@@ -423,7 +423,7 @@ TODO:
                     curr_center.x - (x - curr_center.x),
                     curr_center.y - (y - curr_center.y)
                 ));
-                this.setViewport({
+                this['setViewport']({
                     'center' : new_center,
                     'zoom' : Math.max(this.getMapType()[0].options['min_zoom'], this.viewport['zoom'] - 1)
                 });
@@ -433,7 +433,7 @@ TODO:
                     curr_center.x + ((x - curr_center.x) / 2),
                     curr_center.y + ((y - curr_center.y) / 2)
                 ));
-                this.setViewport({
+                this['setViewport']({
                     'center' : new_center,
                     'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
                 });
@@ -453,7 +453,7 @@ TODO:
             anchor.center.y + y_moved
         );
 
-        this.setViewport({
+        this['setViewport']({
             'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt)
         });
 
@@ -546,8 +546,8 @@ TODO:
     function MapType(map, opt_options){
     }
     MapType.prototype['fromLatLngToPoint'] = function(pt){
-        var lat = pt.lat,
-        lng = pt.lng,
+        var lat = pt['lat'],
+        lng = pt['lng'],
         pi = Math.PI,
         zoom = this.map['getZoom'](),
         e = Math.sin(lat * pi / 180);
@@ -648,14 +648,14 @@ TODO:
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
-    MapType.STREET_MAP = function(map, opt_options){
+    MapType['STREET_MAP'] = function(map, opt_options){
         this.map = map;
         this.options = opt_options || {
             'max_zoom' : 19,
             'min_zoom' : 0
         };
     }
-    extend_class(MapType.STREET_MAP, MapType);
+    extend_class(MapType['STREET_MAP'], MapType);
 
 
 
@@ -986,12 +986,69 @@ Overlays
     
     Marker.prototype.check_for_mouseover = function(arg){
         var opt_options = this.options,
+        map = opt_options['map'],
+        map_type = map.map_types[0],
+        anchor = map_type['fromLatLngToPoint'](opt_options['position']),
+        shape = opt_options['shape'] || [],
+        mouse_pt = map_type['fromLatLngToPoint'](arg['latlng']),
+        min_x = 0,
+        outside_point,
+        intersections = 0;
+        
+        // step 1: calculate an outside point to serve as an endpoint of our ray casting.
+        for(var i = 0; i < shape.length; i++){
+            min_x = Math.min(shape[i].x, min_x);
+        }
+        outside_point = new Point(anchor.x + (min_x * (min_x < 0 ? 2 : .5)) - 10, anchor.y);
+        
+        // step 2: cast the ray
+        for(var i = 0; i < shape.length - 1; i++){
+            var pt1 = new Point(anchor.x + shape[i].x, anchor.y + shape[i].y),
+            pt2 = new Point(anchor.x + shape[i + 1].x, anchor.y + shape[i + 1].y);
+            if(pt2.x != pt1.x){
+                var multiplier = (pt2.y - pt1.y) / (pt2.x - pt1.x),
+                offset = pt2.y - multiplier * pt2.x,
+                ideal_x = (mouse_pt.y - offset) / multiplier;
+                if(ideal_x >= outside_point.x &&
+                    ideal_x <= mouse_pt.x &&
+                    mouse_pt.y >= Math.min(pt1.y, pt2.y) &&
+                    mouse_pt.y <= Math.max(pt1.y, pt2.y)){
+                    intersections++;
+                }
+            } else { // just in case we have a vertical line segment...?
+                var multiplier = (pt2.x - pt1.x) / (pt2.y - pt1.y),
+                offset = pt2.x - multiplier * pt2.y,
+                ideal_y = (mouse_pt.x - offset) / multiplier;
+                if(ideal_y >= outside_point.y &&
+                    ideal_y <= mouse_pt.y &&
+                    mouse_pt.x >= Math.min(pt1.x, pt2.x) &&
+                    mouse_pt.x <= Math.max(pt1.x, pt2.x)){
+                    intersections++;
+                }
+            }
+        }
+
+        // step 3: if intersections is an odd number, we've got a winner
+        if(intersections % 2){
+            map.inner_container.style.cursor = 'pointer';
+            arg['e'].cancelBubble = 1;
+            arg['e'].stopPropagation && arg['e'].stopPropagation();
+            return 1;
+        } else {
+            map.inner_container.style.cursor = '';
+        }
+    };
+
+/*
+    Marker.prototype.check_for_mouseover = function(arg){
+console.log('here');        
+        var opt_options = this.options,
         position = opt_options['position'],
         map = opt_options['map'],
         map_type = map.map_types[0],
         anchor = map_type['fromLatLngToPoint'](position),
-        shape = opt_options['shape'],
-        latlng_shape = [],
+        shape = opt_options['shape'] || [],
+        latlng_shape = this.shape[map.viewport['zoom']] = this.shape[map.viewport['zoom']] || [],
         bounds = new LatLngBounds;
         
 
@@ -1002,7 +1059,7 @@ Overlays
             map_pt = new Point(anchor.x + shape_pt.x, anchor.y + shape_pt.y),
             latlng = map_type['fromPointToLatLng'](map_pt);
             latlng_shape.push(latlng);
-            bounds.extend(latlng);
+            bounds['extend'](latlng);
         }
         
         // check if the point is even inside the bounds of the thing
@@ -1011,21 +1068,21 @@ Overlays
         }
         
         // calculate an endpoint for our ray to do ray casting (i.e., calc lng coord that is outside the marker)
-        var outside_point = new LatLng(arg['latlng'].lat, bounds.sw.lng - 1);
+        var outside_point = new LatLng(arg['latlng']['lat'], bounds['sw']['lng'] - 1);
         
         // check the number of intersections
         var intersections = 0;
         for(var i=0; i<latlng_shape.length - 1; i++){
             var pt1 = latlng_shape[i],
             pt2 = latlng_shape[i + 1],
-            multiplier = (pt2.lat - pt1.lat) / (pt2.lng - pt1.lng),
-            offset = pt2.lat - multiplier * pt2.lng,
-            x = (arg['latlng'].lat - offset) / multiplier;
+            multiplier = (pt2['lat'] - pt1['lat']) / (pt2['lng'] - pt1['lng']),
+            offset = pt2['lat'] - multiplier * pt2['lng'],
+            x = (arg['latlng']['lat'] - offset) / multiplier;
             // the formula for the segment between pt1 and pt2 should be y = ((y2 - y1) / (x2 - x1)) * x + offset
-            if(x > outside_point.lng &&
-                x <= arg['latlng'].lng &&
-                arg['latlng'].lat >= Math.min(pt1.lat, pt2.lat) &&
-                arg['latlng'].lat <= Math.max(pt1.lat, pt2.lat)){
+            if(x > outside_point['lng'] &&
+                x <= arg['latlng']['lng'] &&
+                arg['latlng']['lat'] >= Math.min(pt1['lat'], pt2['lat']) &&
+                arg['latlng']['lat'] <= Math.max(pt1['lat'], pt2['lat'])){
                 intersections++;
             }
         }
@@ -1033,7 +1090,7 @@ Overlays
         // if the number of intersections is odd (i.e., there is a remainder when divided by 2), then
         // set the map cursor to pointer and return true
         
-        // TODO: This logic isn't working correctly. It doesn't seem to fire the else.
+        // TODO: This logic isn't working correctly. It doesn't reliably fire the else.
         console.log(intersections);
         if(intersections % 2){
             map.inner_container.style.cursor = 'pointer';
@@ -1044,6 +1101,7 @@ Overlays
             map.inner_container.style.cursor = '';
         }
     };
+*/
     make_public('Marker', Marker);
     
 
@@ -1056,7 +1114,7 @@ Overlays
             'mouseout' : []
         };
         var bounds = this.bounds = new LatLngBounds;
-        bounds.extend.apply(bounds, this.options.position || []);
+        bounds['extend'].apply(bounds, this.options.position || []);
         
         if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
             this.draw_();
@@ -1110,7 +1168,7 @@ Overlays
         for(var i=0; i<arguments.length; i++){
             var latlng = arguments[i];
             position.push(latlng);
-            bounds.extend(latlng);
+            bounds['extend'](latlng);
         }
         this.draw_();
     };
@@ -1124,7 +1182,7 @@ Overlays
     
     Line.prototype['isClosed'] = function(opt_options){
         var position = this.options['position'];
-        return position && position.length > 1 && position[0].lat == position[position.length - 1].lat && position[0].lng == position[position.length - 1].lng;
+        return position && position.length > 1 && position[0]['lat'] == position[position.length - 1]['lat'] && position[0]['lng'] == position[position.length - 1]['lng'];
     };
     
     Line.prototype.check_for_mouseover = function(arg){
@@ -1140,7 +1198,7 @@ Overlays
         mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point) : point,
         threshold = (opt_options['stroke_width'] || 4) / 2,
         intersections = 0,
-        outside_point = new LatLng(point instanceof LatLng ? point.lat : (map_type['fromPointToLatLng'](point)).lat, bounds.sw.lng - 1),
+        outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point))['lat'], bounds['sw']['lng'] - 1),
         intersections = 0;
         
         for(var i=0; i < position.length - 1; i++){
@@ -1187,7 +1245,7 @@ Overlays
             'mouseout' : []
         };
         var bounds = this.bounds = new LatLngBounds;
-        bounds.extend.apply(bounds, this.options.position || []);
+        bounds['extend'].apply(bounds, this.options.position || []);
 
         if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
             this.draw_();
@@ -1231,7 +1289,7 @@ Overlays
     }
     extend_class(InfoWindow, Overlay);
 
-    InfoWindow.prototype.draw = function(position){
+    InfoWindow.prototype['draw'] = function(position){
         var containerStyle = this.container.style,
         map = this.options['map'];
         containerStyle.left = (position.x - map.offsetLeft) + 'px'; // make these next two lines a bit less brittle, in case someone changes the way the leg looks
@@ -1292,7 +1350,7 @@ Overlays
                 
                 // then, we add the click listener to a new overlay if applicable
                 if(opt_options['overlay']){
-                    this.overlay_click_listener = map_events['addEvent'](opt_options['overlay'], 'click', create_method_closure(this, InfoWindow.prototype.open));
+                    this.overlay_click_listener = map_events['addEvent'](opt_options['overlay'], 'click', create_method_closure(this, InfoWindow.prototype['open']));
                 }
             }
             for(var i in opt_options){
@@ -1343,34 +1401,34 @@ Overlays
     
     function LatLngBounds(){
         if(arguments.length){
-            this.extend(arguments);
+            this['extend'](arguments);
         }
     }
     LatLngBounds.prototype['extend'] = function(){
         for(var i=0; i<arguments.length; i++){
             var new_latlng = arguments[i];
-            if(this.sw){
-                this.sw = new LatLng(
-                    Math.min(this.sw.lat, new_latlng.lat),
-                    Math.min(this.sw.lng, new_latlng.lng)
+            if(this['sw']){
+                this['sw'] = new LatLng(
+                    Math.min(this['sw']['lat'], new_latlng['lat']),
+                    Math.min(this['sw']['lng'], new_latlng['lng'])
                 );
             } else{
-                this.sw = new_latlng;
+                this['sw'] = new_latlng;
             }
             if(this.ne){
-                this.ne = new LatLng(
-                    Math.max(this.ne.lat, new_latlng.lat),
-                    Math.max(this.ne.lng, new_latlng.lng)
+                this['ne'] = new LatLng(
+                    Math.max(this['ne']['lat'], new_latlng['lat']),
+                    Math.max(this['ne']['lng'], new_latlng['lng'])
                 );
             } else {
-                this.ne = new_latlng;
+                this['ne'] = new_latlng;
             }
         }
     };
     LatLngBounds.prototype['contains'] = function(latlng){
-        var sw = this.sw,
-        ne = this.ne;
-        return latlng.lat >= sw.lat && latlng.lat <= ne.lat && latlng.lng >= sw.lng && latlng.lng <= ne.lng;
+        var sw = this['sw'],
+        ne = this['ne'];
+        return sw && ne && latlng['lat'] >= sw['lat'] && latlng['lat'] <= ne['lat'] && latlng['lng'] >= sw['lng'] && latlng['lng'] <= ne['lng'];
     }
     make_public('LatLngBounds', LatLngBounds);
     
@@ -1378,14 +1436,14 @@ Overlays
     
     
     function LatLng(lat, lng){
-        this.lat = lat;
-        this.lng = lng;
+        this['lat'] = lat;
+        this['lng'] = lng;
     }
     LatLng.prototype['lat'] = function(){
-        return this.lat;
+        return this['lat'];
     }
     LatLng.prototype['lng'] = function(){
-        return this.lng;
+        return this['lng'];
     }
     make_public('LatLng', LatLng);
 
