@@ -31,6 +31,9 @@ TODO:
 
 1. GeoJSON vector map type. Maybe even make that default
 2. Directions/routing support. Maybe even turn-by-turn directions?
+3. Overlay.prototype.draw_ logic needs to be improved to ensure that the overlay is visible before triggering the .draw method
+4. The final juncture of closed lines and polygons is jagged, particularly at large stroke widths.
+5. InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
 
 
 *****/
@@ -226,16 +229,19 @@ TODO:
                 }
             }
         
-            // render overlays
-            var overlays = this.overlays;
-            for(var i=0; overlays && i < overlays.length; i++){
-                var overlay = overlays[i];
-                overlay.draw_();
+            // render overlays, markers, and infowindows
+            var overlays = [
+                this.overlays,
+                this.markers,
+                this.infowindows
+            ];
+            for(var i = 0; i < overlays.length; i++){
+                var olays = overlays[i];
+                for(var j = 0; olays && j < olays.length; j++){
+                    var overlay = olays[j];
+                    overlay.draw_();
+                }
             }
-            
-            // render markers
-        
-            // render infowindows
 
             map_events.process_event.apply(this, ['map_render']);
 //            if(this.map_render_listener){
@@ -257,8 +263,16 @@ TODO:
         });
     };
     Map.prototype.addOverlay = function(overlay, dont_render){
-        this.removeOverlay(overlay, 1)
-        var overlays = this.overlays = this.overlays || [];
+        this.removeOverlay(overlay, 1);
+        var overlays;
+        // if this is a marker, we want to make sure it is drawn after lines, polygons, etc.
+        if(overlay instanceof Marker){
+            overlays = this.markers = this.markers || [];
+        } else if(overlay instanceof InfoWindow){ // if this is an infowindow, we'll treat it special.
+            overlays = this.infowindows = this.infowindows || [];
+        } else {
+            overlays = this.overlays = this.overlays || [];
+        }
         overlays.push(overlay);
         if(!dont_render){
             this.render();
@@ -270,7 +284,14 @@ TODO:
 //        }
     };
     Map.prototype.removeOverlay = function(overlay, dont_render){
-        var overlays = this.overlays;
+        var overlays;
+        if(overlay instanceof Marker){
+            overlays = this.markers = this.markers || [];
+        } else if(overlay instanceof InfoWindow){ // if this is an infowindow, we'll treat it special.
+            overlays = this.infowindows = this.infowindows || [];
+        } else {
+            overlays = this.overlays = this.overlays || [];
+        }
         for(var i=0; overlays && i < overlays.length; i++){
             var test_overlay = overlays[i];
             if(test_overlay === overlay){
@@ -363,21 +384,30 @@ TODO:
         // now, we refigure for map coords...
         coords.x += this.offsetLeft;
         coords.y += this.offsetTop;
-        var latlng = this.map_types[0]['fromPointToLatLng'](coords); // we need lat/lng coords to check overlays quickly and easily
-        for(var i=0; this.overlays && !e.cancelBubble && i<this.overlays.length; i++){
-            var overlay = this.overlays[i],
-            arg = {
-                'e' : e,
-                'latlng' : latlng
-            };
+        var latlng = this.map_types[0]['fromPointToLatLng'](coords),  // we need lat/lng coords to check overlays quickly and easily
+        overlays = [
+            this.overlays,
+            this.markers,
+            this.infowindows
+        ];
+         
+        for(var i=0; !e.cancelBubble && i<overlays.length; i++){
+            var olays = overlays[i];
+            for(var j=0; olays && !e.cancelBubble && j < olays.length; j++){
+                var overlay = olays[j],
+                arg = {
+                    'e' : e,
+                    'latlng' : latlng
+                };
 
-            if(overlay['check_for_mouseover'] && overlay['check_for_mouseover'](arg)){
-                if(e.type.match(re)){ // click listener
-                    // call a click listener if any
-                    overlay.click && overlay.click(arg);
-                } else { // mousemove listener
-                    // call a mousemove listener if any
-                    overlay.mousemove && overlay.mousemove(e);
+                if(overlay['check_for_mouseover'] && overlay['check_for_mouseover'](arg)){
+                    if(e.type.match(re)){ // click listener
+                        // call a click listener if any
+                        overlay.click && overlay.click(arg);
+                    } else { // mousemove listener
+                        // call a mousemove listener if any
+                        overlay.mousemove && overlay.mousemove(e);
+                    }
                 }
             }
         }
