@@ -14,12 +14,15 @@ minimize the code.
 
 TODO:
 
+1. GeoJSON vector map type. Maybe even make that default
+2. Directions/routing support. Maybe even turn-by-turn directions?
 
 
 *****/
 
 
 (function(){
+
     // Map is why we're here!
     function Map(el, opt_options){
         el = this.container = (typeof(el) == 'string') ? document.getElementById(el) : el;
@@ -45,7 +48,7 @@ TODO:
         );
         
         // initialize obj events
-        this.listeners = {
+        this['listeners'] = {
             'click' : [],
             'map_loaded' : [],
             'map_type_changed' : [],
@@ -55,10 +58,11 @@ TODO:
             'overlay_removed' : [],
             'drag_start' : [],
             'drag_end' : [],
-            'click' : [],
             'mousemove' : [],
             'drag' : [],
-            'resize' : []
+            'resize' : [],
+            'touch_start' : [],
+            'touch_end' : []
         };
 
 
@@ -331,7 +335,7 @@ TODO:
         // run the coords against the controls first
         for(var i=0; this.controls && !e.cancelBubble && i<this.controls.length; i++){
             var control = this.controls[i];
-            if(control.check_for_mouseover && control.check_for_mouseover(e, coords)){
+            if(control['check_for_mouseover'] && control['check_for_mouseover'](e, coords)){
                 if(e.type.match(re)){ // click listener
                     control.click && control.click(e);
                 } else {
@@ -352,7 +356,7 @@ TODO:
                 'latlng' : latlng
             };
 
-            if(overlay.check_for_mouseover && overlay.check_for_mouseover(arg)){
+            if(overlay['check_for_mouseover'] && overlay['check_for_mouseover'](arg)){
                 if(e.type.match(re)){ // click listener
                     // call a click listener if any
                     overlay.click && overlay.click(arg);
@@ -458,7 +462,7 @@ TODO:
         });
 
         // for debugging, we'll include a utility to display the mouse coords in the upper-left corner of the map
-        if(1){
+        if(0){
             var canvas = this.map_canvas,
             context = this.context,
             anchor_coords = anchor_e.clientX + ', ' + anchor_e.clientY
@@ -559,7 +563,7 @@ TODO:
         
         return new Point(x, y);
     };
-    make_public('MapType', MapType);
+    make_public('RasterMapType', MapType);
     MapType.prototype['fromPointToLatLng'] = function(pt){
         var x = pt.x,
         y = pt.y,
@@ -622,8 +626,8 @@ TODO:
         tileY = y % total_tiles, // the actual y coord of tile we're going to draw
         map = this.map,
         opt_options = this.options,
-        tileWidth = this.tile_width = this.tile_width || (opt_options['width'] || 256),
-        tileHeight = this.tile_height = this.tile_height || (opt_options['height'] || 256);
+        tileWidth = this.tile_width = this.tile_width || (opt_options['tileWidth'] || 256),
+        tileHeight = this.tile_height = this.tile_height || (opt_options['tileHeight'] || 256);
         
         while(tileX < 0){
             tileX = total_tiles + tileX;
@@ -648,6 +652,8 @@ TODO:
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
+    make_public('MapType', MapType);
+    
     MapType['STREET_MAP'] = function(map, opt_options){
         this.map = map;
         this.options = opt_options || {
@@ -748,7 +754,7 @@ Overlays
     
     function Marker(opt_options){
         this['setOptions'](opt_options);
-        this.listeners = {
+        this['listeners'] = {
             'click' : [],
             'mouseover' : [],
             'mouseout' : []
@@ -788,7 +794,7 @@ Overlays
                     img.src = opt_options['icon']
                 }
             } else if(typeof(opt_options['icon']) == 'function'){ // if we have a custom icon draw method given, we'll call it and hand off everything it will need to do its job
-                opt_options['icon'](position); // we assume you can access the map through the opt_options you provided, so you should be able to get the other stuff from it, too.
+                opt_options['icon'].apply(this, [position]); // we assume you can access the map through the opt_options you provided, so you should be able to get the other stuff from it, too.
             } else { // if we're drawing a standard marker
                 var pole_width = 6,
                 pole_half = Math.round(pole_width / 2),
@@ -984,7 +990,7 @@ Overlays
         }
     };
     
-    Marker.prototype.check_for_mouseover = function(arg){
+    Marker.prototype['check_for_mouseover'] = function(arg){
         var opt_options = this.options,
         map = opt_options['map'],
         map_type = map.map_types[0],
@@ -1037,78 +1043,17 @@ Overlays
         } else {
             map.inner_container.style.cursor = '';
         }
+        
     };
 
-/*
-    Marker.prototype.check_for_mouseover = function(arg){
-console.log('here');        
-        var opt_options = this.options,
-        position = opt_options['position'],
-        map = opt_options['map'],
-        map_type = map.map_types[0],
-        anchor = map_type['fromLatLngToPoint'](position),
-        shape = opt_options['shape'] || [],
-        latlng_shape = this.shape[map.viewport['zoom']] = this.shape[map.viewport['zoom']] || [],
-        bounds = new LatLngBounds;
-        
 
-        // calculate the latlng coords of the marker shape
-        for(var i = 0; i < shape.length; i++){
-//            var pt = map_type['fromPointToLatLng'](shape[i]);
-            var shape_pt = shape[i],
-            map_pt = new Point(anchor.x + shape_pt.x, anchor.y + shape_pt.y),
-            latlng = map_type['fromPointToLatLng'](map_pt);
-            latlng_shape.push(latlng);
-            bounds['extend'](latlng);
-        }
-        
-        // check if the point is even inside the bounds of the thing
-        if(!bounds['contains'](arg['latlng'])){
-            return 0;
-        }
-        
-        // calculate an endpoint for our ray to do ray casting (i.e., calc lng coord that is outside the marker)
-        var outside_point = new LatLng(arg['latlng']['lat'], bounds['sw']['lng'] - 1);
-        
-        // check the number of intersections
-        var intersections = 0;
-        for(var i=0; i<latlng_shape.length - 1; i++){
-            var pt1 = latlng_shape[i],
-            pt2 = latlng_shape[i + 1],
-            multiplier = (pt2['lat'] - pt1['lat']) / (pt2['lng'] - pt1['lng']),
-            offset = pt2['lat'] - multiplier * pt2['lng'],
-            x = (arg['latlng']['lat'] - offset) / multiplier;
-            // the formula for the segment between pt1 and pt2 should be y = ((y2 - y1) / (x2 - x1)) * x + offset
-            if(x > outside_point['lng'] &&
-                x <= arg['latlng']['lng'] &&
-                arg['latlng']['lat'] >= Math.min(pt1['lat'], pt2['lat']) &&
-                arg['latlng']['lat'] <= Math.max(pt1['lat'], pt2['lat'])){
-                intersections++;
-            }
-        }
-        
-        // if the number of intersections is odd (i.e., there is a remainder when divided by 2), then
-        // set the map cursor to pointer and return true
-        
-        // TODO: This logic isn't working correctly. It doesn't reliably fire the else.
-        console.log(intersections);
-        if(intersections % 2){
-            map.inner_container.style.cursor = 'pointer';
-            arg['e'].cancelBubble = 1;
-            arg['e'].stopPropagation && arg['e'].stopPropagation();
-            return 1;
-        } else {
-            map.inner_container.style.cursor = '';
-        }
-    };
-*/
     make_public('Marker', Marker);
     
 
 
     function Line(opt_options){
         this['setOptions'](opt_options);
-        this.listeners = {
+        this['listeners'] = {
             'click' : [],
             'mouseover' : [],
             'mouseout' : []
@@ -1185,7 +1130,7 @@ console.log('here');
         return position && position.length > 1 && position[0]['lat'] == position[position.length - 1]['lat'] && position[0]['lng'] == position[position.length - 1]['lng'];
     };
     
-    Line.prototype.check_for_mouseover = function(arg){
+    Line.prototype['check_for_mouseover'] = function(arg){
         return this.contains(arg['latlng']);
     };
     
@@ -1239,7 +1184,7 @@ console.log('here');
     
     function Polygon(opt_options){
         this['setOptions'](opt_options);
-        this.listeners = {
+        this['listeners'] = {
             'click' : [],
             'mouseover' : [],
             'mouseout' : []
@@ -1260,7 +1205,7 @@ console.log('here');
     
     
     function InfoWindow(opt_options){
-        this.container = create_element(
+        this['container'] = create_element(
             'div',[
                 this.controlsContainer = create_element(
                     'div', [
@@ -1285,18 +1230,20 @@ console.log('here');
                 'class' : 'osm_webgl-' + 'infowindow'
             }
         );
-        this.setOptions(opt_options);
+        this['setOptions'](opt_options);
     }
     extend_class(InfoWindow, Overlay);
 
     InfoWindow.prototype['draw'] = function(position){
-        var containerStyle = this.container.style,
+        var containerStyle = this['container'].style,
         map = this.options['map'];
-        containerStyle.left = (position.x - map.offsetLeft) + 'px'; // make these next two lines a bit less brittle, in case someone changes the way the leg looks
+
+        // TODO: make these next two lines a bit less brittle, in case someone changes the way the leg looks
+        containerStyle.left = (position.x - map.offsetLeft) + 'px'; 
         containerStyle.top = (position.y - this.height - map.offsetTop) + 'px';
     };
 
-    InfoWindow.prototype.setOptions = function(opt_options){
+    InfoWindow.prototype['setOptions'] = function(opt_options){
         var options = this.options;
         if(typeof(options) == 'undefined'){ // if not defined, let's define it
             options = this.options = {};
@@ -1365,8 +1312,8 @@ console.log('here');
     };    
     
     InfoWindow.prototype['open'] = InfoWindow.prototype.show = function(opt_options){
-        this.setOptions(opt_options);
-        var container = this.container,
+        this['setOptions'](opt_options);
+        var container = this['container'],
         options = this.options,
         map = this.options['map'];
         if(map){
@@ -1386,12 +1333,17 @@ console.log('here');
     };
     
     InfoWindow.prototype['close'] = InfoWindow.prototype.hide = function(){
-        var container = this.container;
+        var container = this['container'];
         container.parentNode && container.parentNode.removeChild(container);
         this.options['map'].removeOverlay(this);
     };
     
-    InfoWindow.prototype.check_for_mouseover = function(){
+    InfoWindow.prototype['isOpen'] = function(){
+        var container = this['container'];
+        return container.parentNode ? 1 : undefined;
+    };
+    
+    InfoWindow.prototype['check_for_mouseover'] = function(){
         return;
     };
     make_public('InfoWindow', InfoWindow);
@@ -1523,8 +1475,8 @@ console.log('here');
     // Map Event Handling
     var map_events = {};
     map_events['addEvent'] = function(obj, listener, method){ // as the name suggests, adds an event listener to an object
-        if(obj.listeners[listener]){
-            obj.listeners[listener].push(method);
+        if(obj['listeners'][listener]){
+            obj['listeners'][listener].push(method);
         }
         return {
             obj : obj,
@@ -1534,7 +1486,7 @@ console.log('here');
     };
 
     map_events['removeEvent'] = function(event_obj){ // as the name suggests, removes an event listener from an object
-        var listeners = event_obj.obj.listeners[event_obj.listener];
+        var listeners = event_obj.obj['listeners'][event_obj.listener];
         for(var i=0; listeners && i < listeners.length; i++){
             var listener = listeners[i];
             if(listener === event_obj.method){
@@ -1552,11 +1504,33 @@ console.log('here');
     map_events.process_event = function(){
         var listener = arguments[0],
         other_args = Array.prototype.slice.call(arguments, 1);
-        for(var i=0; this.listeners[listener] && i < this.listeners[listener].length; i++){
-            var l = this.listeners[listener][i];
+        for(var i=0; this['listeners'][listener] && i < this['listeners'][listener].length; i++){
+            var l = this['listeners'][listener][i];
             l.apply(this, other_args);
         }
     };
+
+
+    var add_dom_event = map_events['addDOMEvent'] = function(listener, method, target, use_capture){
+        target = target ? target : window;
+        target.addEventListener(listener, method, use_capture); // I'm not screwing around with anything but W3C right now.
+        return {
+            method : method,
+            listener : listener,
+            target : target,
+            use_capture : use_capture
+        };
+    };
+    
+    var remove_dom_event = map_events['removeDOMEvent'] = function(event_obj){
+        (event_obj.target || window).removeEventListener(
+            event_obj.listener,
+            event_obj.method,
+            event_obj.use_capture
+        );
+    }
+
+
     
     make_public('events', map_events);
     
@@ -1568,6 +1542,7 @@ console.log('here');
         intermediary_class.prototype = parent_class.prototype;
         child_class.prototype = new intermediary_class;
     }
+    make_public('extendClass', extend_class);
     
     
     
@@ -1614,34 +1589,10 @@ console.log('here');
             return method.apply(context, my_args);
         }
     }
+    make_public('createMethodClosure', create_method_closure);
     
     
-    
-    
-    function add_dom_event(type, listener, target, use_capture){
-        target = target ? target : window;
-        target.addEventListener(type, listener, use_capture); // I'm not screwing around with anything but W3C right now.
-        return {
-            type : type,
-            listener : listener,
-            target : target,
-            use_capture : use_capture
-        };
-    }
-    make_public('addDOMListener', add_dom_event);
-    
-    
-    
-    
-    function remove_dom_event(event_obj){
-        (event_obj.target || window).removeEventListener(
-            event_obj.type,
-            event_obj.listener,
-            event_obj.use_capture
-        );
-    }
-    make_public('removeDOMListener', remove_dom_event);
-    
+
     
     
     
@@ -1659,4 +1610,6 @@ console.log('here');
         }
         window['_osm'][public_name] = method;
     }
+
+    
 })()

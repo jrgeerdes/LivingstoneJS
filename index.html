@@ -17,7 +17,7 @@
         </style>
         <script type="text/javascript" src="js/osm_webgl.min.js"></script>
         <script type="text/javascript">
-            window['_osm'].addDOMListener('load', function(){
+            window['_osm']['events']['addDOMEvent']('load', function(){
                 // these are the known coordinates of Debra Heights Wesleyan Church in Des Moines, IA.
                 var latlng = new window['_osm']['LatLng'](41.6340891, -93.6641644);
 
