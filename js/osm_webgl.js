@@ -33,7 +33,7 @@ TODO:
 - Directions/routing support. Maybe even turn-by-turn directions?
 - The final juncture of closed lines and polygons is jagged, particularly at large stroke widths.
 - InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
-
+- Need to improve support for custom overlays, rethink logic of Overlay.prototype.draw_ so that custom overlays can be implemented.
 
 *****/
 
@@ -740,7 +740,7 @@ Overlays
             context = map.context,
             map_type = map.map_types[0],
             canvas = map.map_canvas,
-            bounds = this.bounds,
+            bounds = this['bounds'],
             shape = this.shape,
             position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
             position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
@@ -1147,7 +1147,7 @@ Overlays
             'mouseover' : [],
             'mouseout' : []
         };
-        var bounds = this.bounds = new LatLngBounds;
+        var bounds = this['bounds'] = new LatLngBounds;
         bounds['extend'].apply(bounds, this.options.position || []);
         
         if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
@@ -1198,7 +1198,7 @@ Overlays
     
     Line.prototype['extend'] = function(){
         var position = this.options['position'] = this.options['position'] || [],
-        bounds = this.bounds;
+        bounds = this['bounds'];
         for(var i=0; i<arguments.length; i++){
             var latlng = arguments[i];
             position.push(latlng);
