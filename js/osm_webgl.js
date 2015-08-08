@@ -29,11 +29,10 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
 TODO:
 
-1. GeoJSON vector map type. Maybe even make that default
-2. Directions/routing support. Maybe even turn-by-turn directions?
-3. Overlay.prototype.draw_ logic needs to be improved to ensure that the overlay is visible before triggering the .draw method
-4. The final juncture of closed lines and polygons is jagged, particularly at large stroke widths.
-5. InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
+- GeoJSON vector map type. Maybe even make that default
+- Directions/routing support. Maybe even turn-by-turn directions?
+- The final juncture of closed lines and polygons is jagged, particularly at large stroke widths.
+- InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
 
 
 *****/
@@ -169,7 +168,9 @@ TODO:
         var viewport = this.viewport = this.viewport || {},
         opt_options = this.options,
         max_zoom = opt_options['max_zoom'] || 19,
-        min_zoom = opt_options['min_zoom'] || 0;
+        min_zoom = opt_options['min_zoom'] || 0,
+        canvas = this.map_canvas,
+        map_type = this.map_types[0];
         for(var i in new_viewport){
             if(i == 'zoom'){
                 new_viewport[i] = Math.max(new_viewport[i], min_zoom);
@@ -177,6 +178,14 @@ TODO:
             }
             viewport[i] = new_viewport[i];
         }
+        
+        var centerPt = map_type['fromLatLngToPoint'](viewport['center']),
+        half_width = canvas.width / 2,
+        half_height = canvas.height / 2,
+        sw = map_type['fromPointToLatLng'](new Point(centerPt.x - half_width, centerPt.y - half_height)),
+        ne = map_type['fromPointToLatLng'](new Point(centerPt.x + half_width, centerPt.y + half_height));
+        viewport['bounds'] = new LatLngBounds(sw, ne);
+        
         this.render();
         map_events.process_event.apply(this, ['viewport_changed'])
 //        if(this.viewport_change_listener){
@@ -725,6 +734,40 @@ Overlays
     // draw_ method loops through the map, calling the overlay's own draw method to
     // tile it appropriately. It hands the position of the overlay's origin as a Point
     Overlay.prototype.draw_ = function(){
+        if(this.options['map']){
+            var opt_options = this.options,
+            map = opt_options['map'],
+            context = map.context,
+            map_type = map.map_types[0],
+            canvas = map.map_canvas,
+            bounds = this.bounds,
+            shape = this.shape,
+            position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
+            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+            
+            if((bounds && bounds['overlaps'](map.viewport['bounds'])) || (position.x - map.offsetLeft < canvas.width)){
+                var sw;
+                if(bounds){
+                    sw = map_type['fromLatLngToPoint'](bounds['sw']);
+                    sw.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+                }
+                while(position.x - map.offsetLeft < canvas.width || (bounds && sw.x - map.offsetLeft < canvas.width)){
+                    this['draw'](position);
+
+                    // increment the position
+                    position.x += map_type.total_tiles * map_type.tile_width;
+                    if(bounds){
+                        sw.x += map_type.total_tiles * map_type.tile_width;
+                    }
+                }
+            } else {
+                this.hide && this.hide();
+            }
+        }
+    };
+
+/*
+    Overlay.prototype.draw_ = function(){
         if(this.options['map']){ // if we don't have a map, there's no point
             var opt_options = this.options,
             map = opt_options['map'],
@@ -749,6 +792,7 @@ Overlays
             }
         }
     };
+*/
     Overlay.prototype.click = function(e){
         var opt_options = this.options,
         infowindows = this.infowindows
@@ -1397,8 +1441,8 @@ Overlays
 
     
     function LatLngBounds(){
-        if(arguments.length){
-            this['extend'](arguments);
+        for(var i=0; i<arguments.length; i++){
+            this['extend'](arguments[i]);
         }
     }
     LatLngBounds.prototype['extend'] = function(){
@@ -1426,7 +1470,16 @@ Overlays
         var sw = this['sw'],
         ne = this['ne'];
         return sw && ne && latlng['lat'] >= sw['lat'] && latlng['lat'] <= ne['lat'] && latlng['lng'] >= sw['lng'] && latlng['lng'] <= ne['lng'];
-    }
+    };
+    LatLngBounds.prototype['overlaps'] = function(bounds){
+        if(bounds['ne']['lat'] >= this['sw']['lat'] && // if ne lat of bounds is greater or equal to sw lat of this AND
+            bounds['sw']['lat'] <= this['ne']['lat'] && // sw lat of bounds is less than or equal to ne lat of this AND
+            bounds['ne']['lng'] >= this['sw']['lng'] && // ne lng of bounds is greater than or equal to sw lng of this AND
+            bounds['sw']['lng'] <= this['ne']['lng'] // sw lng of bounds is less than or equal to ne lng of this
+        ) {
+            return 1; // then the bounds must overlap
+        }
+    };
     make_public('LatLngBounds', LatLngBounds);
     
     
