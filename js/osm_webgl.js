@@ -724,8 +724,19 @@ TODO:
             }
         };    
     }
-
     extend_class(MapType['TERRAIN'], MapType);
+    
+    MapType['WATERCOLOR'] = function(map, opt_options){
+        this.map = map;
+        this.options = opt_options || {
+            'max_zoom' : 19,
+            'min_zoom' : 0,
+            'resolveTileUrl' : function(x, y, zoom){
+                return 'http://c.tile.stamen.com/watercolor/' + zoom + '/' + x + '/' + y + '.jpg';
+            }
+        };    
+    }
+    extend_class(MapType['WATERCOLOR'], MapType);
 
 
 
