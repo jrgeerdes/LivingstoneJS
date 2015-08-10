@@ -745,7 +745,7 @@ TODO:
             'min_zoom' : 0,
             'resolveTileUrl' : function(x, y, zoom){
             var server = Math.round(Math.random() * 4 + .5);
-            return 'http://otile' + server + '.mqcdn.com/tiles/1.0.0/sat/' + zoom + '/' + x + '/' + y + '.png';
+            return 'http://otile' + server + '.mqcdn.com/tiles/1.0.0/sat/' + zoom + '/' + x + '/' + y + '.jpg';
             }
         };        
     }
