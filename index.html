@@ -37,13 +37,13 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
         </style>
         <script type="text/javascript" src="js/osm_webgl.min.js"></script>
         <script type="text/javascript">
-            window['_osm']['events']['addDOMEvent']('load', function(){
+            window._osm.events.addDOMEvent('load', function(){
                 // these are the known coordinates of Debra Heights Wesleyan Church in Des Moines, IA.
-                var latlng = new window['_osm']['LatLng'](41.6340891, -93.6641644);
+                var latlng = new window._osm.LatLng(41.6340891, -93.6641644);
 
                 // init map
-                var map = window['test_map'] = new window['_osm']['Map']('map', {
-                    'map_type' : window['_osm']['MapType']['STREET_MAP'],
+                var map = window.test_map = new window._osm.Map('map', {
+                    'map_type' : [window._osm.MapType.STREET_MAP, window._osm.MapType.TERRAIN],
                     'viewport' : {
                         'center' : latlng,
                         'zoom' : 12
@@ -52,7 +52,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
                 });
                 
                 // place a marker
-                var marker = window['test_marker'] = new window['_osm']['Marker']({
+                var marker = window.test_marker = new window._osm.Marker({
                     'position' : latlng,
                     'map' : map,
 //                    'color' : 'green',
@@ -60,7 +60,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 //                    'label_color' : 'yellow'
                 });
                 
-                var marker2 = window['test_marker2'] = new window['_osm']['Marker']({
+                var marker2 = window.test_marker2 = new window._osm.Marker({
                     'position' : new window._osm.LatLng(latlng.lat, latlng.lng - .1),
                     'map' : map
                 });
@@ -68,22 +68,74 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
                 // place an infowindow
                 var infowindow_content = document.createElement('div');
                 infowindow_content.innerHTML = '<h1>Hello, world!</h1>';
-                var infowindow = window['test_infowindow'] = new window['_osm']['InfoWindow']({
+                var infowindow = windowtest_infowindow = new window._osm.InfoWindow({
                     'overlay' : marker,
                     'content' : infowindow_content
                 });
                 
                 // place a line
-                var line = window['test_line'] = new window['_osm']['Line']({
+                var line = window.test_line = new window._osm.Line({
                     'position' : [
                         latlng,
-                        new window['_osm']['LatLng'](latlng.lat + .05, latlng.lng - .05),
-                        new window['_osm']['LatLng'](latlng.lat, latlng.lng - .1),
-                        new window['_osm']['LatLng'](latlng.lat - .05, latlng.lng - .05),
+                        new window._osm.LatLng(latlng.lat + .05, latlng.lng - .05),
+                        new window._osm.LatLng(latlng.lat, latlng.lng - .1),
+                        new window._osm.LatLng(latlng.lat - .05, latlng.lng - .05),
                         latlng
                     ],
                     'map' : map
                 });
+                
+                
+                
+                function MyCustomOverlay(bounds, opt_options){
+                    this.bounds = bounds;
+                    this.setOptions(opt_options);
+                    this.listeners = {
+                        'click' : [],
+                        'mouseover' : [],
+                        'mouseout' : []
+                    };
+                }
+                window._osm.extendClass(MyCustomOverlay, window._osm.Overlay);
+                MyCustomOverlay.prototype.draw = function(position){
+                    var context = this.options.map.getContext(),
+                    center = map.getMapType()[0].fromLatLngToPoint(this.bounds.getCenter()),
+                    sw = map.getMapType()[0].fromLatLngToPoint(this.bounds.sw),
+                    radius = Math.abs(center.x - sw.x),
+                    offset = this.options.map.getOffset(),
+                    x = position.x - offset.x,
+                    y = position.y - offset.y;
+
+                    context.save(); // save the current context so we don't mess it up
+                    
+                    context.lineWidth = 4;
+                    context.strokeStyle = 'rgb(0, 200, 0)';
+                    
+                    context.beginPath();
+                    context.arc(x, y, radius / 4, 0, 2 * Math.PI);
+                    context.stroke();
+                    
+                    context.lineWidth = 2;
+                    context.beginPath();
+                    context.arc(x, y, radius / 2, 0, 2 * Math.PI);
+                    context.stroke();
+                    
+                    context.lineWidth = 1;
+                    context.beginPath();
+                    context.arc(x, y, radius, 0, 2 * Math.PI);
+                    context.stroke();
+                    
+                    context.restore(); // restore the original context so all is well in the world
+                }
+
+                var custom_overlay = new MyCustomOverlay(
+                    new window._osm.LatLngBounds(
+                        new window._osm.LatLng(31.6340891, -83.6641644),
+                        new window._osm.LatLng(51.6340891, -103.6641644)
+                    ), {
+                        'map' : map
+                });
+
             });
         </script>
     </head>

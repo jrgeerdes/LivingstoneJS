@@ -182,8 +182,8 @@ TODO:
         var centerPt = map_type['fromLatLngToPoint'](viewport['center']),
         half_width = canvas.width / 2,
         half_height = canvas.height / 2,
-        sw = map_type['fromPointToLatLng'](new Point(centerPt.x - half_width, centerPt.y - half_height)),
-        ne = map_type['fromPointToLatLng'](new Point(centerPt.x + half_width, centerPt.y + half_height));
+        sw = map_type['fromPointToLatLng'](new Point(centerPt['x'] - half_width, centerPt['y'] - half_height)),
+        ne = map_type['fromPointToLatLng'](new Point(centerPt['x'] + half_width, centerPt['y'] + half_height));
         viewport['bounds'] = new LatLngBounds(sw, ne);
         
         this.render();
@@ -217,8 +217,8 @@ TODO:
         if(viewport && map_type){
             if(viewport['center'] && typeof(viewport['zoom']) == 'number'){ // if we have a center and zoom
                 var center_point = viewport['center'] instanceof Point ? viewport['center'] : map_type['fromLatLngToPoint'](viewport['center']);
-                offsetLeft = this.offsetLeft = (center_point.x - Math.round(map_canvas.width / 2));
-                offsetTop = this.offsetTop = (center_point.y - Math.round(map_canvas.height / 2));
+                offsetLeft = this.offsetLeft = (center_point['x'] - Math.round(map_canvas.width / 2));
+                offsetTop = this.offsetTop = (center_point['y'] - Math.round(map_canvas.height / 2));
             } else if(viewport['bounds']){ // if we have LatLngBounds
             }
                     
@@ -270,6 +270,9 @@ TODO:
         this['setViewport']({
             'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
         });
+    };
+    Map.prototype['getOffset'] = function(){
+        return new Point(this.offsetLeft, this.offsetTop);
     };
     Map.prototype.addOverlay = function(overlay, dont_render){
         this.removeOverlay(overlay, 1);
@@ -371,8 +374,8 @@ TODO:
         var coords = new Point(e.clientX, e.clientY);
         el = e.target;
         while(el){
-            coords.x += el.offsetLeft;
-            coords.y += el.offsetTop;
+            coords['x'] += el.offsetLeft;
+            coords['y'] += el.offsetTop;
             el = el.offsetParent;
         }
 
@@ -391,8 +394,8 @@ TODO:
 */
 
         // now, we refigure for map coords...
-        coords.x += this.offsetLeft;
-        coords.y += this.offsetTop;
+        coords['x'] += this.offsetLeft;
+        coords['y'] += this.offsetTop;
         var latlng = this.map_types[0]['fromPointToLatLng'](coords),  // we need lat/lng coords to check overlays quickly and easily
         overlays = [
             this.overlays,
@@ -478,8 +481,8 @@ TODO:
                         
             if(orig_distance > now_distance){ // if the pinch is inward
                 new_center = map_type['fromPointToLatLng'](new Point(
-                    curr_center.x - (x - curr_center.x),
-                    curr_center.y - (y - curr_center.y)
+                    curr_center['x'] - (x - curr_center['x']),
+                    curr_center['y'] - (y - curr_center['y'])
                 ));
                 this['setViewport']({
                     'center' : new_center,
@@ -488,8 +491,8 @@ TODO:
 //                this['zoomOut']();
             } else {
                 new_center = map_type['fromPointToLatLng'](new Point(
-                    curr_center.x + ((x - curr_center.x) / 2),
-                    curr_center.y + ((y - curr_center.y) / 2)
+                    curr_center['x'] + ((x - curr_center['x']) / 2),
+                    curr_center['y'] + ((y - curr_center['y']) / 2)
                 ));
                 this['setViewport']({
                     'center' : new_center,
@@ -507,8 +510,8 @@ TODO:
         x_moved = anchor_e.clientX - (e.changedTouches ? e.changedTouches[0] : e).clientX,
         y_moved = anchor_e.clientY - (e.changedTouches ? e.changedTouches[0] : e).clientY,
         new_center_pt = new Point(
-            anchor.center.x + x_moved,
-            anchor.center.y + y_moved
+            anchor.center['x'] + x_moved,
+            anchor.center['y'] + y_moved
         );
 
         this['setViewport']({
@@ -587,14 +590,8 @@ TODO:
     
     
     function Point(x, y){
-        this.x = x;
-        this.y = y;
-    }
-    Point.prototype['x'] = function(){
-        return this.x;
-    }
-    Point.prototype['y'] = function(){
-        return this.y;
+        this['x'] = x;
+        this['y'] = y;
     }
     make_public('Point', Point);
     
@@ -619,8 +616,8 @@ TODO:
     };
     make_public('RasterMapType', MapType);
     MapType.prototype['fromPointToLatLng'] = function(pt){
-        var x = pt.x,
-        y = pt.y,
+        var x = pt['x'],
+        y = pt['y'],
         tileHeight = this.options['tileHeight'] || 256,
         tileWidth = this.options['tileWidth'] || 256,
         zoom = this.map['getZoom'](),
@@ -716,6 +713,19 @@ TODO:
         };
     }
     extend_class(MapType['STREET_MAP'], MapType);
+    
+    MapType['TERRAIN'] = function(map, opt_options){
+        this.map = map;
+        this.options = opt_options || {
+            'max_zoom' : 19,
+            'min_zoom' : 0,
+            'resolveTileUrl' : function(x, y, zoom){
+                return 'http://c.tiles.wmflabs.org/hillshading/' + zoom + '/' + x + '/' + y + '.png';
+            }
+        };    
+    }
+
+    extend_class(MapType['TERRAIN'], MapType);
 
 
 
@@ -742,22 +752,22 @@ Overlays
             canvas = map.map_canvas,
             bounds = this['bounds'],
             shape = this.shape,
-            position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
-            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+            position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position'] ? opt_options['position'] : bounds['getCenter']());
+            position['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
             
-            if((bounds && bounds['overlaps'](map.viewport['bounds'])) || (position.x - map.offsetLeft < canvas.width)){
+            if((bounds && bounds['overlaps'](map.viewport['bounds'])) || (position['x'] - map.offsetLeft < canvas.width)){
                 var sw;
                 if(bounds){
                     sw = map_type['fromLatLngToPoint'](bounds['sw']);
-                    sw.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+                    sw['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
                 }
-                while(position.x - map.offsetLeft < canvas.width || (bounds && sw.x - map.offsetLeft < canvas.width)){
+                while(position['x'] - map.offsetLeft < canvas.width || (bounds && sw['x'] - map.offsetLeft < canvas.width)){
                     this['draw'](position);
 
                     // increment the position
-                    position.x += map_type.total_tiles * map_type.tile_width;
+                    position['x'] += map_type.total_tiles * map_type.tile_width;
                     if(bounds){
-                        sw.x += map_type.total_tiles * map_type.tile_width;
+                        sw['x'] += map_type.total_tiles * map_type.tile_width;
                     }
                 }
             } else {
@@ -775,17 +785,17 @@ Overlays
             map_type = map.map_types[0],
             canvas = map.map_canvas,
             position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position']);
-            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+            position['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
 
             // if we're in the displayable area, let's render the overlay.
             // TODO: This logic probably needs to be worked on to ensure best performance. Namely, make sure the overlay is actually within the bounds of the viewport
-            if(position.x - map.offsetLeft < canvas.width){
-                while(position.x - map.offsetLeft < canvas.width){
+            if(position['x'] - map.offsetLeft < canvas.width){
+                while(position['x'] - map.offsetLeft < canvas.width){
 
                     this['draw'](position);
 
                     // increment the position
-                    position.x += map_type.total_tiles * map_type.tile_width;
+                    position['x'] += map_type.total_tiles * map_type.tile_width;
                 }
             } else {
                 this.hide && this.hide();
@@ -837,6 +847,7 @@ Overlays
             }
         }
     };
+    make_public('Overlay', Overlay);
     
     
     
@@ -865,16 +876,16 @@ Overlays
                         Math.round(img.width / 2),
                         img.height
                     ),
-                    imgX = position.x - anchor.x - map.offsetLeft,
-                    imgY = position.y - anchor.y - map.offsetTop;
+                    imgX = position['x'] - anchor['x'] - map.offsetLeft,
+                    imgY = position['y'] - anchor['y'] - map.offsetTop;
                     context.drawImage(img, imgX, imgY);
                     if(!opt_options['shape']){
                         opt_options['shape'] = [
-                            new Point(-anchor.x, anchor.y), // upper-left
-                            new Point(-anchor.x, 0), // lower-left
-                            new Point(anchor.x, 0), // lower-right
-                            new Point(anchor.x, anchor.y), // upper-right
-                            new Point(-anchor.x, anchor.y) // upper-left
+                            new Point(-anchor['x'], anchor['y']), // upper-left
+                            new Point(-anchor['x'], 0), // lower-left
+                            new Point(anchor['x'], 0), // lower-right
+                            new Point(anchor['x'], anchor['y']), // upper-right
+                            new Point(-anchor['x'], anchor['y']) // upper-left
                         ];
                     }
                 } else {
@@ -888,12 +899,12 @@ Overlays
                 var pole_width = 6,
                 pole_half = Math.round(pole_width / 2),
                 pole_height = 30,
-                startingPos = new Point(position.x - pole_half - map.offsetLeft, position.y - pole_height - map.offsetTop),
-                anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
+                startingPos = new Point(position['x'] - pole_half - map.offsetLeft, position['y'] - pole_height - map.offsetTop),
+                anchorPos = new Point(position['x'] - map.offsetLeft, position['y'] - map.offsetTop),
                 flag_height = pole_height * .75,
                 txt_width = opt_options['label'] ? context.measureText(opt_options['label']).width : 0,
                 flag_width = Math.max(32, txt_width + 10),
-                flag_x = startingPos.x + pole_half + 1,
+                flag_x = startingPos['x'] + pole_half + 1,
                 flag_perspective_difference = Math.round(pole_half * .75);
                 context.lineWidth = 1;
                 if(opt_options['label_font']){
@@ -904,10 +915,10 @@ Overlays
                 context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
                 context.strokeStyle = opt_options['flag_stroke_color'] || 'rgba(100, 25, 25, 1)';
                 context.beginPath();
-                context.moveTo(startingPos.x + pole_width, startingPos.y);
-                context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
-                context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
-                context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
+                context.moveTo(startingPos['x'] + pole_width, startingPos['y']);
+                context.lineTo(startingPos['x'] + pole_width + flag_width, startingPos['y']);
+                context.lineTo(startingPos['x'] + pole_width + flag_width - flag_perspective_difference, startingPos['y'] + flag_height);
+                context.lineTo(startingPos['x'] + pole_width - flag_perspective_difference, startingPos['y'] + flag_height);
                 context.fill();
                 context.stroke();
 
@@ -915,17 +926,17 @@ Overlays
                 for(var i=0; i < pole_width; i++){
                     var rgb_val = 175 - (50 * Math.max(i - pole_half, 0));
                     context.beginPath();
-                    context.moveTo(startingPos.x + i, startingPos.y);
-                    context.lineTo(anchorPos.x, anchorPos.y);
+                    context.moveTo(startingPos['x'] + i, startingPos['y']);
+                    context.lineTo(anchorPos['x'], anchorPos['y']);
                     context.strokeStyle = 'rgba(' + rgb_val + ', ' + rgb_val + ', ' + rgb_val + ', 1)';
                     context.stroke();
                 }
                 
                 // draw the cap of the flagpole
                 context.beginPath();
-                context.moveTo(startingPos.x, startingPos.y);
-                context.bezierCurveTo(startingPos.x, startingPos.y - 2, startingPos.x + pole_width, startingPos.y - 2, startingPos.x + pole_width, startingPos.y);
-                context.bezierCurveTo(startingPos.x + pole_width, startingPos.y + 2, startingPos.x, startingPos.y + 2, startingPos.x, startingPos.y);
+                context.moveTo(startingPos['x'], startingPos['y']);
+                context.bezierCurveTo(startingPos['x'], startingPos['y'] - 2, startingPos['x'] + pole_width, startingPos['y'] - 2, startingPos['x'] + pole_width, startingPos['y']);
+                context.bezierCurveTo(startingPos['x'] + pole_width, startingPos['y'] + 2, startingPos['x'], startingPos['y'] + 2, startingPos['x'], startingPos['y']);
                 context.fillStyle = 'rgba(175, 175, 175, 1)';
                 context.fill();
                 
@@ -946,8 +957,8 @@ Overlays
                     context.fillStyle = opt_options['label_color'] || '#000';
                     context.fillText(
                         opt_options['label'],
-                        startingPos.x + pole_width + txt_x,
-                        startingPos.y + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
+                        startingPos['x'] + pole_width + txt_x,
+                        startingPos['y'] + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
                     );
                 }
                 
@@ -976,9 +987,9 @@ Overlays
             map_type = map.map_types[0],
             canvas = map.map_canvas,
             position = map_type['fromLatLngToPoint'](opt_options['position']);
-            position.x -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
-//            while(position.x < canvas.width - map.offsetLeft){
-            while(position.x - map.offsetLeft < canvas.width){
+            position['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
+//            while(position['x'] < canvas.width - map.offsetLeft){
+            while(position['x'] - map.offsetLeft < canvas.width){
                 if(opt_options['icon']){ // if we have an icon given, we'll need to get it and draw it in the correct place
                     var img = this.img
                     if(img){ // if we have the image already
@@ -986,8 +997,8 @@ Overlays
                             Math.round(img.width / 2),
                             img.height
                         ),
-                        imgX = position.x - anchor.x - map.offsetLeft,
-                        imgY = position.y - anchor.y - map.offsetTop;
+                        imgX = position['x'] - anchor['x'] - map.offsetLeft,
+                        imgY = position['y'] - anchor['y'] - map.offsetTop;
                         context.drawImage(img, imgX, imgY);
                     } else {
                         img = this.img = new Image;
@@ -1001,14 +1012,14 @@ Overlays
                         'offsetTop' : map.offsetTop
                     });
                 } else { // if we're drawing a standard marker, let's do it.
-                    var startingPos = new Point(position.x - 3 - map.offsetLeft, position.y - 30 - map.offsetTop),
-                    anchorPos = new Point(position.x - map.offsetLeft, position.y - map.offsetTop),
+                    var startingPos = new Point(position['x'] - 3 - map.offsetLeft, position['y'] - 30 - map.offsetTop),
+                    anchorPos = new Point(position['x'] - map.offsetLeft, position['y'] - map.offsetTop),
                     pole_width = 6,
                     pole_half = Math.round(pole_width / 2),
                     flag_height = 24,
                     txt_width = opt_options['label'] ? context.measureText(opt_options['label']).width : 0,
                     flag_width = Math.max(32, txt_width + 10),
-                    flag_x = startingPos.x + pole_half + 1,
+                    flag_x = startingPos['x'] + pole_half + 1,
                     flag_perspective_difference = Math.round(pole_half * .75);
                     context.lineWidth = 1;
                     if(opt_options['label_font']){
@@ -1018,27 +1029,27 @@ Overlays
                     // draw the flag
                     context.fillStyle = opt_options['color'] || 'rgba(255, 75, 75, 1)';
                     context.beginPath();
-                    context.moveTo(startingPos.x + pole_width, startingPos.y);
-                    context.lineTo(startingPos.x + pole_width + flag_width, startingPos.y);
-                    context.lineTo(startingPos.x + pole_width + flag_width - flag_perspective_difference, startingPos.y + flag_height);
-                    context.lineTo(startingPos.x + pole_width - flag_perspective_difference, startingPos.y + flag_height);
+                    context.moveTo(startingPos['x'] + pole_width, startingPos['y']);
+                    context.lineTo(startingPos['x'] + pole_width + flag_width, startingPos['y']);
+                    context.lineTo(startingPos['x'] + pole_width + flag_width - flag_perspective_difference, startingPos['y'] + flag_height);
+                    context.lineTo(startingPos['x'] + pole_width - flag_perspective_difference, startingPos['y'] + flag_height);
                     context.fill();
 
                     // draw the flagpole
                     for(var i=0; i < pole_width; i++){
                         var rgb_val = 175 - (50 * Math.max(i - pole_half, 0));
                         context.beginPath();
-                        context.moveTo(startingPos.x + i, startingPos.y);
-                        context.lineTo(anchorPos.x, anchorPos.y);
+                        context.moveTo(startingPos['x'] + i, startingPos['y']);
+                        context.lineTo(anchorPos['x'], anchorPos['y']);
                         context.strokeStyle = 'rgba(' + rgb_val + ', ' + rgb_val + ', ' + rgb_val + ', 1)';
                         context.stroke();
                     }
                 
                     // draw the cap of the flagpole
                     context.beginPath();
-                    context.moveTo(startingPos.x, startingPos.y);
-                    context.bezierCurveTo(startingPos.x, startingPos.y - 2, startingPos.x + pole_width, startingPos.y - 2, startingPos.x + pole_width, startingPos.y);
-                    context.bezierCurveTo(startingPos.x + pole_width, startingPos.y + 2, startingPos.x, startingPos.y + 2, startingPos.x, startingPos.y);
+                    context.moveTo(startingPos['x'], startingPos['y']);
+                    context.bezierCurveTo(startingPos['x'], startingPos['y'] - 2, startingPos['x'] + pole_width, startingPos['y'] - 2, startingPos['x'] + pole_width, startingPos['y']);
+                    context.bezierCurveTo(startingPos['x'] + pole_width, startingPos['y'] + 2, startingPos['x'], startingPos['y'] + 2, startingPos['x'], startingPos['y']);
                     context.fillStyle = 'rgba(175, 175, 175, 1)';
                     context.fill();
                 
@@ -1059,14 +1070,14 @@ Overlays
                         context.fillStyle = opt_options['label_color'] || '#000';
                         context.fillText(
                             opt_options['label'],
-                            startingPos.x + pole_width + txt_x,
-                            startingPos.y + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
+                            startingPos['x'] + pole_width + txt_x,
+                            startingPos['y'] + flag_height - Math.round((flag_height - (txt_height * .66)) / 2)
                         );
                     }
                 }
                 
                 // increment the position
-                position.x += map_type.total_tiles * map_type.tile_width;
+                position['x'] += map_type.total_tiles * map_type.tile_width;
             }
         }
     };
@@ -1092,32 +1103,32 @@ Overlays
         
         // step 1: calculate an outside point to serve as an endpoint of our ray casting.
         for(var i = 0; i < shape.length; i++){
-            min_x = Math.min(shape[i].x, min_x);
+            min_x = Math.min(shape[i]['x'], min_x);
         }
-        outside_point = new Point(anchor.x + (min_x * (min_x < 0 ? 2 : .5)) - 10, anchor.y);
+        outside_point = new Point(anchor['x'] + (min_x * (min_x < 0 ? 2 : .5)) - 10, anchor['y']);
         
         // step 2: cast the ray
         for(var i = 0; i < shape.length - 1; i++){
-            var pt1 = new Point(anchor.x + shape[i].x, anchor.y + shape[i].y),
-            pt2 = new Point(anchor.x + shape[i + 1].x, anchor.y + shape[i + 1].y);
-            if(pt2.x != pt1.x){
-                var multiplier = (pt2.y - pt1.y) / (pt2.x - pt1.x),
-                offset = pt2.y - multiplier * pt2.x,
-                ideal_x = (mouse_pt.y - offset) / multiplier;
-                if(ideal_x >= outside_point.x &&
-                    ideal_x <= mouse_pt.x &&
-                    mouse_pt.y >= Math.min(pt1.y, pt2.y) &&
-                    mouse_pt.y <= Math.max(pt1.y, pt2.y)){
+            var pt1 = new Point(anchor['x'] + shape[i]['x'], anchor['y'] + shape[i]['y']),
+            pt2 = new Point(anchor['x'] + shape[i + 1]['x'], anchor['y'] + shape[i + 1]['y']);
+            if(pt2['x'] != pt1['x']){
+                var multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
+                offset = pt2['y'] - multiplier * pt2['x'],
+                ideal_x = (mouse_pt['y'] - offset) / multiplier;
+                if(ideal_x >= outside_point['x'] &&
+                    ideal_x <= mouse_pt['x'] &&
+                    mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
+                    mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
                     intersections++;
                 }
             } else { // just in case we have a vertical line segment...?
-                var multiplier = (pt2.x - pt1.x) / (pt2.y - pt1.y),
-                offset = pt2.x - multiplier * pt2.y,
-                ideal_y = (mouse_pt.x - offset) / multiplier;
-                if(ideal_y >= outside_point.y &&
-                    ideal_y <= mouse_pt.y &&
-                    mouse_pt.x >= Math.min(pt1.x, pt2.x) &&
-                    mouse_pt.x <= Math.max(pt1.x, pt2.x)){
+                var multiplier = (pt2['x'] - pt1['x']) / (pt2['y'] - pt1['y']),
+                offset = pt2['x'] - multiplier * pt2['y'],
+                ideal_y = (mouse_pt['x'] - offset) / multiplier;
+                if(ideal_y >= outside_point['y'] &&
+                    ideal_y <= mouse_pt['y'] &&
+                    mouse_pt['x'] >= Math.min(pt1['x'], pt2['x']) &&
+                    mouse_pt['x'] <= Math.max(pt1['x'], pt2['x'])){
                     intersections++;
                 }
             }
@@ -1172,15 +1183,15 @@ Overlays
             context.strokeStyle = opt_options['stroke_color'] || 'rgb(0, 200, 0)';
             context.fillStyle = opt_options['fill_color'] || 'rgb(150, 200, 150)';
             context.beginPath();
-            context.moveTo(position.x - map.offsetLeft, position.y - map.offsetTop);
+            context.moveTo(position['x'] - map.offsetLeft, position['y'] - map.offsetTop);
             
             // loop through the points to draw the line
             for(var i=1; i < this.options['position'].length; i++){
                 var pt1 = map_type['fromLatLngToPoint'](this.options['position'][i]),
-                x_diff = pt1.x - pt0.x,
-                y_diff = pt1.y - pt0.y;
+                x_diff = pt1['x'] - pt0['x'],
+                y_diff = pt1['y'] - pt0['y'];
                 
-                context.lineTo(position.x + x_diff - map.offsetLeft, position.y + y_diff - map.offsetTop);
+                context.lineTo(position['x'] + x_diff - map.offsetLeft, position['y'] + y_diff - map.offsetTop);
             }
 
             if(this instanceof Polygon && this['isClosed']()){ // if this is a polygon, we're going to fill the thing
@@ -1228,33 +1239,32 @@ Overlays
         position = opt_options['position'],
         map = opt_options['map'],
         map_type = map.map_types[0],
-        bounds = this.bounds
+        bounds = this['bounds']
         mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point) : point,
         threshold = (opt_options['stroke_width'] || 4) / 2,
-        intersections = 0,
         outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point))['lat'], bounds['sw']['lng'] - 1),
         intersections = 0;
         
         for(var i=0; i < position.length - 1; i++){
             var pt1 = map_type['fromLatLngToPoint'](position[i]),
             pt2 = map_type['fromLatLngToPoint'](position[i + 1]),
-            multiplier = (pt2.y - pt1.y) / (pt2.x - pt1.x),
-            offset = pt1.y - (multiplier * pt1.x),
-            should_be_y = (multiplier * mouse_pt.x) + offset,
-            x = (mouse_pt.y - offset) / multiplier;
+            multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
+            offset = pt1['y'] - (multiplier * pt1['x']),
+            should_be_y = (multiplier * mouse_pt['x']) + offset,
+            x = (mouse_pt['y'] - offset) / multiplier;
             
             // check if we're over the line
-            if(mouse_pt.x >= (Math.min(pt1.x, pt2.x) - threshold) && // if the mouse is right of the left limit of the segment,
-                mouse_pt.x <= (Math.max(pt1.x, pt2.x) + threshold) && // left of the right limit of the segment, and
-                Math.abs(mouse_pt.y - should_be_y) <= threshold){ // within the threshold of where the line should be
+            if(mouse_pt['x'] >= (Math.min(pt1['x'], pt2['x']) - threshold) && // if the mouse is right of the left limit of the segment,
+                mouse_pt['x'] <= (Math.max(pt1['x'], pt2['x']) + threshold) && // left of the right limit of the segment, and
+                Math.abs(mouse_pt['y'] - should_be_y) <= threshold){ // within the threshold of where the line should be
                 return 1; // then we're moused over
             }
             
             if(this instanceof Polygon && this.isClosed()){ // if this is a Polygon
-                if(x > map_type['fromLatLngToPoint'](outside_point).x &&
-                    x <= mouse_pt.x &&
-                    mouse_pt.y >= Math.min(pt1.y, pt2.y) &&
-                    mouse_pt.y <= Math.max(pt1.y, pt2.y)){
+                if(x > map_type['fromLatLngToPoint'](outside_point)['x'] &&
+                    x <= mouse_pt['x'] &&
+                    mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
+                    mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
                     intersections++;
                 }
             }
@@ -1328,8 +1338,8 @@ Overlays
         map = this.options['map'];
 
         // TODO: make these next two lines a bit less brittle, in case someone changes the way the leg looks
-        containerStyle.left = (position.x - map.offsetLeft) + 'px'; 
-        containerStyle.top = (position.y - this.height - map.offsetTop) + 'px';
+        containerStyle.left = (position['x'] - map.offsetLeft) + 'px'; 
+        containerStyle.top = (position['y'] - this.height - map.offsetTop) + 'px';
     };
 
     InfoWindow.prototype['setOptions'] = function(opt_options){
@@ -1456,7 +1466,7 @@ Overlays
             } else{
                 this['sw'] = new_latlng;
             }
-            if(this.ne){
+            if(this['ne']){
                 this['ne'] = new LatLng(
                     Math.max(this['ne']['lat'], new_latlng['lat']),
                     Math.max(this['ne']['lng'], new_latlng['lng'])
@@ -1479,6 +1489,12 @@ Overlays
         ) {
             return 1; // then the bounds must overlap
         }
+    };
+    LatLngBounds.prototype['getCenter'] = function(){
+        var sw = this['sw'],
+        ne = this['ne'],
+        center = new LatLng((sw['lat'] + ne['lat']) / 2, (sw['lng'] + ne['lng']) / 2);
+        return center;
     };
     make_public('LatLngBounds', LatLngBounds);
     
