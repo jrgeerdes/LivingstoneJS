@@ -589,9 +589,10 @@ TODO:
     
     
     
-    function Point(x, y){
+    function Point(x, y, z){
         this['x'] = x;
         this['y'] = y;
+        this['z'] = z;
     }
     make_public('Point', Point);
     
@@ -614,7 +615,6 @@ TODO:
         
         return new Point(x, y);
     };
-    make_public('RasterMapType', MapType);
     MapType.prototype['fromPointToLatLng'] = function(pt){
         var x = pt['x'],
         y = pt['y'],
@@ -703,7 +703,6 @@ TODO:
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
-    make_public('MapType', MapType);
     
     MapType['STREET_MAP'] = function(map, opt_options){
         this.map = map;
@@ -750,6 +749,8 @@ TODO:
         };        
     }
     extend_class(MapType['SATELLITE'], MapType);
+
+    make_public('RasterMapType', MapType);
 
 
 
@@ -1206,6 +1207,7 @@ Overlays
             context.lineWidth = opt_options['stroke_width'] || 4;
             context.strokeStyle = opt_options['stroke_color'] || 'rgb(0, 200, 0)';
             context.fillStyle = opt_options['fill_color'] || 'rgb(150, 200, 150)';
+            context.lineJoin = opt_options['corner_style'] || 'miter';
             context.beginPath();
             context.moveTo(position['x'] - map.offsetLeft, position['y'] - map.offsetTop);
             
