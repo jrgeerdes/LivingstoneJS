@@ -28,6 +28,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
             html, body{
                 height: 100%;
                 margin: 0;
+                overflow: hidden;
             }
             
             #map{
@@ -43,7 +44,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
                 // init map
                 var map = window.test_map = new window._osm.Map('map', {
-                    'map_type' : window._osm.RasterMapType.SATELLITE,
+                    'map_type' : window._osm.RasterMapType.STREET_MAP,
                     'viewport' : {
                         'center' : latlng,
                         'zoom' : 12

@@ -29,11 +29,10 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
 TODO:
 
+- Add support for exclusions to Polygons
 - GeoJSON vector map type. Maybe even make that default
 - Directions/routing support. Maybe even turn-by-turn directions?
-- The final juncture of closed lines and polygons is jagged, particularly at large stroke widths.
 - InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
-- Need to improve support for custom overlays, rethink logic of Overlay.prototype.draw_ so that custom overlays can be implemented.
 
 *****/
 
@@ -67,6 +66,7 @@ TODO:
         // initialize obj events
         this['listeners'] = {
             'click' : [],
+            'dblclick' : [],
             'map_loaded' : [],
             'map_type_changed' : [],
             'viewport_changed' : [],
@@ -147,6 +147,7 @@ TODO:
         add_dom_event('touchleave', mouseuplistener, map_canvas);
         add_dom_event('touchcancel', mouseuplistener, window);
         add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
+        add_dom_event('dblclick', create_method_closure(this, Map.prototype.dblclick), map_canvas);
         add_dom_event('mousemove', create_method_closure(this, Map.prototype.mousemove), map_canvas);
     };
     Map.prototype['setMapType'] = function(map_type){
@@ -426,6 +427,35 @@ TODO:
         
     };
     
+    Map.prototype.dblclick = function(e){
+        // process the dblclick event
+        map_events.process_event.apply(this, ['dblclick']);
+
+
+        var x = e.pageX + this.offsetLeft,
+        y = e.pageY + this.offsetTop,
+        target = e.target,
+        curr_center = this.map_types[0]['fromLatLngToPoint'](this.viewport['center']),
+        map_type = this.map_types[0],
+        new_center;
+        
+        while(target){
+            x += target.offsetLeft;
+            y += target.offsetTop;
+            target = target.offsetParent;
+        }
+        
+        new_center = map_type['fromPointToLatLng'](new Point(
+            curr_center['x'] + ((x - curr_center['x']) / 2),
+            curr_center['y'] + ((y - curr_center['y']) / 2)
+        ));
+        this['setViewport']({
+            'center' : new_center,
+            'zoom' : Math.min(map_type.options['max_zoom'], this.viewport['zoom'] + 1)
+        });
+        
+    };
+    
     // start_touch method is designed to detect touchstart events and set up the touchmove listeners needed to respond to them.
     Map.prototype.start_touch = function(e){
         //kill any touch listener already activated 
@@ -578,7 +608,7 @@ TODO:
         return this.map_types;
     };
     Map.prototype['getCanvas'] = function(){
-        return this.canvas;
+        return this.map_canvas;
     };
     Map.prototype['getContext'] = function(){
         return this.context;
@@ -751,6 +781,14 @@ TODO:
     extend_class(MapType['SATELLITE'], MapType);
 
     make_public('RasterMapType', MapType);
+    
+    
+    
+    function VectorMapType(map, opt_options){
+    }
+    extend_class(VectorMapType, MapType);
+    VectorMapType.prototype.placeTile = function(x, y, zoom){
+    }
 
 
 
@@ -1218,6 +1256,10 @@ Overlays
                 y_diff = pt1['y'] - pt0['y'];
                 
                 context.lineTo(position['x'] + x_diff - map.offsetLeft, position['y'] + y_diff - map.offsetTop);
+            }
+            
+            if(this['isClosed']()){
+                context.closePath();
             }
 
             if(this instanceof Polygon && this['isClosed']()){ // if this is a polygon, we're going to fill the thing
