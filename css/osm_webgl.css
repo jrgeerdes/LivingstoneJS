@@ -21,6 +21,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 .osm_webgl-container {
     width: 100%;
     height: 100%;
+    position: relative;
 }
 
 .osm_webgl-infowindow{
@@ -60,15 +61,15 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
 .osm_webgl-zoomcontrol{
     position: absolute;
-    top: 10px;
-    left: 10px;
+    bottom: 20px;
+    right: 10px;
 }
 
 .osm_webgl-zoomcontrol-in, .osm_webgl-zoomcontrol-out{
-    height: 20px;
-    width: 20px;
-    line-height: 20px;
-    font-size: 20px;
+    height: 32px;
+    width: 32px;
+    line-height: 32px;
+    font-size: 32px;
     text-align: center;
     border: 1px solid #d5d5d5;
     background: #fff;
@@ -82,4 +83,17 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
 .osm_webgl-zoomcontrol-inactive{
     color: #d5d5d5;
+}
+
+div.osm_webgl-attribution{
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    background: #fff;
+    opacity: .85;
+    padding: 2px;
+    border: 1px solid #aaa;
+    font-size: 10px;
+    font-family: sans-serif;
+    max-width: 50%;
 }

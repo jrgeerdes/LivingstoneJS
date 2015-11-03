@@ -49,15 +49,20 @@ TODO:
             'class' : 'osm_webgl-' + 'container',
             'width' : opt_options['canvas_x_resolution'] || el.offsetWidth,
             'height' : opt_options['canvas_y_resolution'] || el.offsetHeight
+        }),
+        attrib = this.attribution = create_element('div', null, {
+            'class' : 'osm_webgl-' + 'attribution'
         });
         el.appendChild(
             this.inner_container = create_element(
                 'div',
-                [map_canvas], {
+                [map_canvas, attrib], {
                     'class' : 'osm_webgl-' + 'style'
                 }, {
                     'position' : 'relative',
-                    'overflow' : 'hidden'
+                    'overflow' : 'hidden',
+                    'height' : '100%',
+                    'width' : '100%'
 //                    'cursor' : 'move'
                 }
             )
@@ -70,6 +75,7 @@ TODO:
             'map_loaded' : [],
             'map_type_changed' : [],
             'viewport_changed' : [],
+            'zoom_changed' : [],
             'map_render' : [],
             'overlay_added' : [],
             'overlay_removed' : [],
@@ -151,14 +157,25 @@ TODO:
         add_dom_event('mousemove', create_method_closure(this, Map.prototype.mousemove), map_canvas);
     };
     Map.prototype['setMapType'] = function(map_type){
+        var attrib = this.attribution;
+        while(attrib.firstChild){
+            attrib.removeChild(attrib.firstChild);
+        }
+
         if(Array.isArray(map_type)){
             this.map_types = [];
             for(var i=0; i<map_type.length; i++){
-                this.map_types.push(new map_type[i](this));
+                var mt = map_type[i];
+                this.map_types.push(mt);
+                mt.options['attribution'] && attrib.appendChild(mt.options['attribution'].cloneNode(1));
             }
         } else {
-                this.map_types = [new map_type(this)]
+//                this.map_types = [new map_type(this)]
+            this.map_types = [map_type]
+            map_type.options['attribution'] && attrib.appendChild(map_type.options['attribution'].cloneNode(1));
         }
+        
+        
         this.render();
         map_events.process_event.apply(this, ['map_type_change']);
 //        if(this.map_type_change_listener){
@@ -171,6 +188,7 @@ TODO:
         max_zoom = opt_options['max_zoom'] || 19,
         min_zoom = opt_options['min_zoom'] || 0,
         canvas = this.map_canvas,
+        original_zoom = viewport['zoom'],
         map_type = this.map_types[0];
         for(var i in new_viewport){
             if(i == 'zoom'){
@@ -180,18 +198,50 @@ TODO:
             viewport[i] = new_viewport[i];
         }
         
-        var centerPt = map_type['fromLatLngToPoint'](viewport['center']),
-        half_width = canvas.width / 2,
-        half_height = canvas.height / 2,
-        sw = map_type['fromPointToLatLng'](new Point(centerPt['x'] - half_width, centerPt['y'] - half_height)),
-        ne = map_type['fromPointToLatLng'](new Point(centerPt['x'] + half_width, centerPt['y'] + half_height));
-        viewport['bounds'] = new LatLngBounds(sw, ne);
+        if(new_viewport['bounds']){
+            this['fitBounds'](new_viewport['bounds']);
+        } else {
+            var centerPt = map_type['fromLatLngToPoint'](viewport['center'], this['getZoom']()),
+            half_width = canvas.width / 2,
+            half_height = canvas.height / 2,
+            sw = map_type['fromPointToLatLng'](new Point(centerPt['x'] - half_width, centerPt['y'] - half_height), this['getZoom']()),
+            ne = map_type['fromPointToLatLng'](new Point(centerPt['x'] + half_width, centerPt['y'] + half_height), this['getZoom']());
+            viewport['bounds'] = new LatLngBounds(sw, ne);
+        }
         
         this.render();
-        map_events.process_event.apply(this, ['viewport_changed'])
+        map_events.process_event.apply(this, ['viewport_changed']);
+        if(original_zoom != viewport['zoom']){ // if the zoom level changed, let's fire the more specific zoom changed event
+            map_events.process_event.apply(this, ['zoom_changed']);
+        }
 //        if(this.viewport_change_listener){
 //            this.viewport_change_listener();
 //        }
+    };
+    Map.prototype['getViewport'] = function(){
+        return this.viewport;
+    };
+    Map.prototype['fitBounds'] = function(bounds){
+        var canvas = this.map_canvas,
+        opt_options = this.options,
+        map_type = this.map_types[0],
+        canvas_height = canvas.height,
+        canvas_width = canvas.width;
+        
+        for(var i=map_type.options['max_zoom']; i > map_type.options['min_zoom']; i--){
+            var ne = map_type['fromLatLngToPoint'](bounds['ne'], i),
+            sw = map_type['fromLatLngToPoint'](bounds['sw'], i),
+            bounds_height = Math.abs(ne['y'] - sw['y']),
+            bounds_width = Math.abs(ne['x'] - sw['x']);
+            
+            if(i - 1 <= map_type.options['min_zoom'] || (bounds_height <= canvas_height && bounds_width <= canvas_width)){
+                this['setViewport']({
+                    'center' : bounds['getCenter'](),
+                    'zoom' : i
+                });
+                break;
+            }
+        }
     };
     Map.prototype.get_center_as_pt = function(){
         var canvas = this.map_canvas,
@@ -217,10 +267,11 @@ TODO:
         
         if(viewport && map_type){
             if(viewport['center'] && typeof(viewport['zoom']) == 'number'){ // if we have a center and zoom
-                var center_point = viewport['center'] instanceof Point ? viewport['center'] : map_type['fromLatLngToPoint'](viewport['center']);
+                var center_point = viewport['center'] instanceof Point ? viewport['center'] : map_type['fromLatLngToPoint'](viewport['center'], this['getZoom']());
                 offsetLeft = this.offsetLeft = (center_point['x'] - Math.round(map_canvas.width / 2));
                 offsetTop = this.offsetTop = (center_point['y'] - Math.round(map_canvas.height / 2));
             } else if(viewport['bounds']){ // if we have LatLngBounds
+                this['fitBounds'](viewport['bounds']);
             }
                     
             // render the tiles
@@ -232,7 +283,7 @@ TODO:
                 while(x * tileWidth < map_canvas.width + offsetLeft){
                     var y = Math.floor(offsetTop / tileHeight); // this line needs to be corrected to allow for spanning backward past 0
                     while(y * tileHeight < offsetTop + map_canvas.height){
-                        map_type.placeTile(x, y, (this.viewport['zoom'] || 0));
+                        map_type.placeTile(x, y, (this.viewport['zoom'] || 0), this);
                         y++;
                     }
                     x++;
@@ -260,16 +311,30 @@ TODO:
         }
     };
     Map.prototype['getZoom'] = function(){
-        return this.viewport['zoom'];
+        return this.viewport ? this.viewport['zoom'] : undefined;
     };
     Map.prototype['zoomOut'] = function(){
+        var desired_zoom = this.viewport['zoom'] - 1,
+        map_types = this.getMapType();
+        for(var i=0; i<map_types.length; i++){
+            var map_type = map_types[i],
+            min_zoom = map_type.options['min_zoom'];
+            desired_zoom = Math.max(typeof(min_zoom) == 'number' ? min_zoom : 0, desired_zoom);
+        }
         this['setViewport']({
-            'zoom' : Math.max(this.getMapType()[0].options['min_zoom'], this.viewport['zoom'] - 1)
+            'zoom' : desired_zoom
         });
     };
     Map.prototype['zoomIn'] = function(){
+        var desired_zoom = this.viewport['zoom'] + 1,
+        map_types = this.getMapType();
+        for(var i=0; i<map_types.length; i++){
+            var map_type = map_types[i],
+            max_zoom = map_type.options['max_zoom'];
+            desired_zoom = Math.min(typeof(max_zoom) == 'number' ? max_zoom : 19, desired_zoom);
+        }
         this['setViewport']({
-            'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
+            'zoom' : desired_zoom
         });
     };
     Map.prototype['getOffset'] = function(){
@@ -325,6 +390,8 @@ TODO:
             e : e,
             center : this.get_center_as_pt()
         }]);
+        
+        this.moved = 0;
 
         // add mouse drag listeners
         this.mouse_drag_listener = add_dom_event('mousemove', handler, window);
@@ -341,14 +408,17 @@ TODO:
     };
     Map.prototype.end_drag = function(e){
 //        console.log("Ending drag.");
-        this.mouse_drag_listener && remove_dom_event(this.mouse_drag_listener);
+        if(this.mouse_drag_listener){
+            remove_dom_event(this.mouse_drag_listener);
+            this.mouse_drag_listener = undefined;
+            this.moved && map_events.process_event.apply(this, ['drag_end']);
+        }
 //        remove_dom_event(this.touch_drag_listener);
 
         // reset the cursor
         this.inner_container.style.cursor = '';
 
         // call the user-defined drag end listener
-        map_events.process_event.apply(this, ['drag_end']);
 //        if(this.drag_end_listener){
 //            this.drag_end_listener();
 //        }
@@ -397,7 +467,7 @@ TODO:
         // now, we refigure for map coords...
         coords['x'] += this.offsetLeft;
         coords['y'] += this.offsetTop;
-        var latlng = this.map_types[0]['fromPointToLatLng'](coords),  // we need lat/lng coords to check overlays quickly and easily
+        var latlng = this.map_types[0]['fromPointToLatLng'](coords, this['getZoom']()),  // we need lat/lng coords to check overlays quickly and easily
         overlays = [
             this.overlays,
             this.markers,
@@ -435,7 +505,7 @@ TODO:
         var x = e.pageX + this.offsetLeft,
         y = e.pageY + this.offsetTop,
         target = e.target,
-        curr_center = this.map_types[0]['fromLatLngToPoint'](this.viewport['center']),
+        curr_center = this.map_types[0]['fromLatLngToPoint'](this.viewport['center'], this['getZoom']()),
         map_type = this.map_types[0],
         new_center;
         
@@ -448,7 +518,7 @@ TODO:
         new_center = map_type['fromPointToLatLng'](new Point(
             curr_center['x'] + ((x - curr_center['x']) / 2),
             curr_center['y'] + ((y - curr_center['y']) / 2)
-        ));
+        ), this['getZoom']());
         this['setViewport']({
             'center' : new_center,
             'zoom' : Math.min(map_type.options['max_zoom'], this.viewport['zoom'] + 1)
@@ -501,7 +571,7 @@ TODO:
             y = (anchor.e.touches[0].pageY + anchor.e.touches[1].pageY) / 2 + this.offsetTop,
             el = this.map_canvas,
             map_type = this.map_types[0],
-            curr_center = map_type['fromLatLngToPoint'](this.viewport['center']),
+            curr_center = map_type['fromLatLngToPoint'](this.viewport['center'], this['getZoom']()),
             new_center;
             while(el){
                 x -= el.offsetLeft;
@@ -513,7 +583,7 @@ TODO:
                 new_center = map_type['fromPointToLatLng'](new Point(
                     curr_center['x'] - (x - curr_center['x']),
                     curr_center['y'] - (y - curr_center['y'])
-                ));
+                ), this['getZoom']());
                 this['setViewport']({
                     'center' : new_center,
                     'zoom' : Math.max(this.getMapType()[0].options['min_zoom'], this.viewport['zoom'] - 1)
@@ -523,7 +593,7 @@ TODO:
                 new_center = map_type['fromPointToLatLng'](new Point(
                     curr_center['x'] + ((x - curr_center['x']) / 2),
                     curr_center['y'] + ((y - curr_center['y']) / 2)
-                ));
+                ), this['getZoom']());
                 this['setViewport']({
                     'center' : new_center,
                     'zoom' : Math.min(this.getMapType()[0].options['max_zoom'], this.viewport['zoom'] + 1)
@@ -543,11 +613,14 @@ TODO:
             anchor.center['x'] + x_moved,
             anchor.center['y'] + y_moved
         );
+        
+        this.moved = x_moved || y_moved;
 
         this['setViewport']({
-            'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt)
+            'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt, this['getZoom']())
         });
 
+/*
         // for debugging, we'll include a utility to display the mouse coords in the upper-left corner of the map
         if(0){
             var canvas = this.map_canvas,
@@ -562,7 +635,8 @@ TODO:
             context.fillText(coords, canvas.width - width - 2, 36);
 //            console.log(e);
         }
-        
+*/        
+
         map_events.process_event.apply(this, ['drag', {
             'e' : e,
             'anchor' : anchor
@@ -629,13 +703,31 @@ TODO:
     
     
     
-    function MapType(map, opt_options){
+    function MapType(opt_options){
+        var attribution = create_element('a', null, {
+            'class' : 'osm_webgl-' + 'attribution',
+            'href' : 'http://www.openstreetmap.org/copyright'
+        });
+        attribution.innerHTML = '&copy; OpenStreetMap contributors';
+        this.options = { // defaults
+            'max_zoom' : 19,
+            'min_zoom' : 0,
+            'attribution' : attribution
+        };
+        for(var i in opt_options){
+            this.options[i] = opt_options[i];
+        }
+        
+        if(this.options['attribution'] && !this.options['attribution'].nodeType){
+            this.options['attribution'] = document.createTextNode(this.options['attribution']);
+        }
     }
-    MapType.prototype['fromLatLngToPoint'] = function(pt){
+    MapType.prototype['fromLatLngToPoint'] = function(pt, z){
         var lat = pt['lat'],
         lng = pt['lng'],
         pi = Math.PI,
-        zoom = this.map['getZoom'](),
+        zoom = typeof(z) == 'number' ? z : 0,
+//        zoom = typeof(z) == 'number' ? z : this.map['getZoom'](),
         e = Math.sin(lat * pi / 180);
         e = Math.max(e, -.9999);
         e = Math.min(e, .9999);
@@ -645,12 +737,13 @@ TODO:
         
         return new Point(x, y);
     };
-    MapType.prototype['fromPointToLatLng'] = function(pt){
+    MapType.prototype['fromPointToLatLng'] = function(pt, z){
         var x = pt['x'],
         y = pt['y'],
         tileHeight = this.options['tileHeight'] || 256,
         tileWidth = this.options['tileWidth'] || 256,
-        zoom = this.map['getZoom'](),
+        zoom = typeof(z) == 'number' ? z : 0,
+//        zoom = this.map['getZoom'](),
         pi = Math.PI,
         lng = (x - (256 * Math.pow(2, zoom - 1))) / (256 * Math.pow(2, zoom) / 360), // ((x-(256*(2^zoom-1)))/((256*(2^zoom))/360)
         e = (y - (256 * Math.pow(2, zoom - 1))) / (-256 * (Math.pow(2, zoom)) / (2 * pi)),
@@ -680,7 +773,7 @@ TODO:
             return 'http://' + server + '.tile.openstreetmap.org/' + zoom + '/' + x + '/' + y + '.png';
         }
     };
-    MapType.prototype.generateTile = function(x, y, zoom){
+    MapType.prototype.generateTile = function(x, y, zoom, map){
         var tiles = this.tiles = this.tiles || {};
         if(!tiles[zoom]){
             tiles[zoom] = {};
@@ -692,20 +785,20 @@ TODO:
         var img = tiles[zoom][x][y] = new Image;
         img.onload = create_method_closure(this, function(x, y, zoom){
             this.tiles[zoom][x][y].osm_webgl_ready = 1; // let's assign a property to verify that the tile is loaded
-            this.map.render();
+            map.render();
 //            this.placeTile(x, y, zoom);
         }, [x, y, zoom]);
         img.src = this['resolveTileUrl'](x, y, zoom);
         
         tiles[zoom][x][y] = img;
     };
-    MapType.prototype.placeTile = function(x, y, zoom){
+    MapType.prototype.placeTile = function(x, y, zoom, map){
 //        console && console.log && console.log(([x, y, zoom]).join(' | ')); // debugging only
         var tiles = this.tiles = this.tiles || {},
         total_tiles = this.total_tiles = Math.pow(2, zoom),
         tileX = x % total_tiles, // the actual x coord of tile we're going to draw
         tileY = y % total_tiles, // the actual y coord of tile we're going to draw
-        map = this.map,
+//        map = this.map,
         opt_options = this.options,
         tileWidth = this.tile_width = this.tile_width || (opt_options['tileWidth'] || 256),
         tileHeight = this.tile_height = this.tile_height || (opt_options['tileHeight'] || 256);
@@ -726,59 +819,41 @@ TODO:
                     context.drawImage(img, imgX, imgY);
                 }
             } else if(!img){
-                this.generateTile(tileX, tileY, zoom);
+                this.generateTile(tileX, tileY, zoom, map);
             }
         } else {
             context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 1)';
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
     };
+    make_public('MapType', MapType);
     
-    MapType['STREET_MAP'] = function(map, opt_options){
-        this.map = map;
-        this.options = opt_options || {
-            'max_zoom' : 19,
-            'min_zoom' : 0
-        };
-    }
-    extend_class(MapType['STREET_MAP'], MapType);
+    MapType['STREET_MAP'] = new MapType
     
-    MapType['TERRAIN'] = function(map, opt_options){
-        this.map = map;
-        this.options = opt_options || {
-            'max_zoom' : 19,
-            'min_zoom' : 0,
-            'resolveTileUrl' : function(x, y, zoom){
-                return 'http://c.tiles.wmflabs.org/hillshading/' + zoom + '/' + x + '/' + y + '.png';
-            }
-        };    
-    }
-    extend_class(MapType['TERRAIN'], MapType);
+    MapType['TERRAIN'] = new MapType({
+        'max_zoom' : 19,
+        'min_zoom' : 0,
+        'resolveTileUrl' : function(x, y, zoom){
+            return 'http://c.tiles.wmflabs.org/hillshading/' + zoom + '/' + x + '/' + y + '.png';
+        }
+    });
     
-    MapType['WATERCOLOR'] = function(map, opt_options){
-        this.map = map;
-        this.options = opt_options || {
-            'max_zoom' : 19,
-            'min_zoom' : 0,
-            'resolveTileUrl' : function(x, y, zoom){
-                return 'http://c.tile.stamen.com/watercolor/' + zoom + '/' + x + '/' + y + '.jpg';
-            }
-        };    
-    }
-    extend_class(MapType['WATERCOLOR'], MapType);
+    MapType['WATERCOLOR'] = new MapType({
+        'max_zoom' : 19,
+        'min_zoom' : 0,
+        'resolveTileUrl' : function(x, y, zoom){
+            return 'http://c.tile.stamen.com/watercolor/' + zoom + '/' + x + '/' + y + '.jpg';
+        }
+    });
     
-    MapType['SATELLITE'] = function(map, opt_options){
-        this.map = map;
-        this.options = opt_options || {
-            'max_zoom' : 18,
-            'min_zoom' : 0,
-            'resolveTileUrl' : function(x, y, zoom){
+    MapType['SATELLITE'] = new MapType({
+        'max_zoom' : 18,
+        'min_zoom' : 0,
+        'resolveTileUrl' : function(x, y, zoom){
             var server = Math.round(Math.random() * 4 + .5);
             return 'http://otile' + server + '.mqcdn.com/tiles/1.0.0/sat/' + zoom + '/' + x + '/' + y + '.jpg';
-            }
-        };        
-    }
-    extend_class(MapType['SATELLITE'], MapType);
+        }
+    });
 
     make_public('RasterMapType', MapType);
     
@@ -787,7 +862,7 @@ TODO:
     function VectorMapType(map, opt_options){
     }
     extend_class(VectorMapType, MapType);
-    VectorMapType.prototype.placeTile = function(x, y, zoom){
+    VectorMapType.prototype.placeTile = function(x, y, zoom, map){
     }
 
 
@@ -815,13 +890,16 @@ Overlays
             canvas = map.map_canvas,
             bounds = this['bounds'],
             shape = this.shape,
-            position = map_type['fromLatLngToPoint'](opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position'] ? opt_options['position'] : bounds['getCenter']());
+            position = map_type['fromLatLngToPoint'](
+                opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position'] ? opt_options['position'] : bounds['getCenter'](),
+                map['getZoom']()
+            );
             position['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
             
             if((bounds && bounds['overlaps'](map.viewport['bounds'])) || (position['x'] - map.offsetLeft < canvas.width)){
                 var sw;
                 if(bounds){
-                    sw = map_type['fromLatLngToPoint'](bounds['sw']);
+                    sw = map_type['fromLatLngToPoint'](bounds['sw'], map['getZoom']());
                     sw['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
                 }
                 while(position['x'] - map.offsetLeft < canvas.width || (bounds && sw['x'] - map.offsetLeft < canvas.width)){
@@ -872,7 +950,7 @@ Overlays
         
         // if we have an infowindow
         for(var i=0; infowindows && i<infowindows.length; i++){
-            
+            infowindows[i].open();
         }
         
         // if we have a user-defined click listener
@@ -906,7 +984,8 @@ Overlays
             var map = this.options['map'];
             if(map){
                 map.addOverlay(this, 1);
-                this.draw_();
+//                this.draw_();
+                map.render();
             }
         }
     };
@@ -933,7 +1012,7 @@ Overlays
             canvas = map.map_canvas;
             
             if(typeof(opt_options['icon']) == 'string'){ // if we have a custom icon url given, we'll need to get it and draw it in the correct place
-                var img = this.img;
+                var img = this.img && this.img.src == opt_options['icon'] ? this.img : undefined;
                 if(img){ // if we already have the image
                     var anchor = opt_options['anchor'] = opt_options['anchor'] || new Point( // get the provided anchor or calculate it at the bottom center of the image
                         Math.round(img.width / 2),
@@ -942,7 +1021,7 @@ Overlays
                     imgX = position['x'] - anchor['x'] - map.offsetLeft,
                     imgY = position['y'] - anchor['y'] - map.offsetTop;
                     context.drawImage(img, imgX, imgY);
-                    if(!opt_options['shape']){
+                    if(!opt_options['shape']){ // if we don't have a custom shape defined, we'll assume that the anchor is in the bottom-center of the image and build a shape accordingly
                         opt_options['shape'] = [
                             new Point(-anchor['x'], anchor['y']), // upper-left
                             new Point(-anchor['x'], 0), // lower-left
@@ -1157,6 +1236,59 @@ Overlays
         var opt_options = this.options,
         map = opt_options['map'],
         map_type = map.map_types[0],
+        anchor = map_type['fromLatLngToPoint'](opt_options['position'], map['getZoom']()),
+        shape = opt_options['shape'] || [],
+        mouse_pt = map_type['fromLatLngToPoint'](arg['latlng'], map['getZoom']()),
+        inf = 1e600,
+        eps = .0001,
+        intersections = 0;
+        
+        for(var i=0; i<shape.length - 1; i++){
+            var pt1 = new Point(anchor['x'] + shape[i]['x'], anchor['y'] + shape[i]['y']),
+            pt2 = new Point(anchor['x'] + shape[i + 1]['x'], anchor['y'] + shape[i + 1]['y']);
+                        
+            if(pt1['y'] > pt2['y']){ // make sure we know which of these points is north.
+                pt3 = pt2;
+                pt2 = pt1;
+                pt1 = pt3;
+            }
+            
+            if(mouse_pt['y'] == pt1['y'] || mouse_pt['y'] == pt2['y']) mouse_pt['y'] += eps;
+            
+            if(mouse_pt['y'] < pt1['y'] || // the mouse y coord is outside the shape segment...
+                mouse_pt['y'] > pt2['y'] ||
+                mouse_pt['x'] > Math.max(pt1['x'], pt2['x'])){ // ...or mouse x coord is greater than the max x of the shape segment
+                continue; // no intersection; move on
+            }
+            if(mouse_pt['x'] < Math.min(pt1['x'], pt2['x'])){ // if the mouse x coord is less than the min x of the shape segment
+                intersections++; // we have an intersect
+                continue; // move on
+            }
+            
+            var multiplier_red = (pt1['x'] != pt2['x']) ? (pt2['y'] - pt1['y']) / (pt2['x'] - pt2['x']) : inf,
+            multiplier_blue = (pt1['x'] != mouse_pt['x']) ? (mouse_pt['y'] - pt1['y']) / (mouse_pt['x'] - pt1['x']) : inf;
+            
+            if(multiplier_blue >= multiplier_red){
+                intersections++;
+            }
+        }
+
+        if(intersections % 2){
+            map.inner_container.style.cursor = 'pointer';
+            arg['e'].cancelBubble = 1;
+            arg['e'].stopPropagation && arg['e'].stopPropagation();
+
+            return 1;
+        } else {
+            map.inner_container.style.cursor = '';
+        }
+    };
+
+/*
+    Marker.prototype['check_for_mouseover'] = function(arg){
+        var opt_options = this.options,
+        map = opt_options['map'],
+        map_type = map.map_types[0],
         anchor = map_type['fromLatLngToPoint'](opt_options['position']),
         shape = opt_options['shape'] || [],
         mouse_pt = map_type['fromLatLngToPoint'](arg['latlng']),
@@ -1168,16 +1300,14 @@ Overlays
         for(var i = 0; i < shape.length; i++){
             min_x = Math.min(shape[i]['x'], min_x);
         }
-        outside_point = new Point(anchor['x'] + (min_x * (min_x < 0 ? 2 : .5)) - 10, anchor['y']);
+        outside_point = new Point(-10, -10);
         
         // step 2: cast the ray
         for(var i = 0; i < shape.length - 1; i++){
-            var pt1 = new Point(anchor['x'] + shape[i]['x'], anchor['y'] + shape[i]['y']),
-            pt2 = new Point(anchor['x'] + shape[i + 1]['x'], anchor['y'] + shape[i + 1]['y']);
             if(pt2['x'] != pt1['x']){
                 var multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
                 offset = pt2['y'] - multiplier * pt2['x'],
-                ideal_x = (mouse_pt['y'] - offset) / multiplier;
+                ideal_x = (mouse_pt['y'] - offset) / multiplier; // at what x coord does the line between shape points intersect the mouse y coord?
                 if(ideal_x >= outside_point['x'] &&
                     ideal_x <= mouse_pt['x'] &&
                     mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
@@ -1202,13 +1332,14 @@ Overlays
             map.inner_container.style.cursor = 'pointer';
             arg['e'].cancelBubble = 1;
             arg['e'].stopPropagation && arg['e'].stopPropagation();
+
             return 1;
         } else {
             map.inner_container.style.cursor = '';
         }
         
     };
-
+*/
 
     make_public('Marker', Marker);
     
@@ -1238,7 +1369,7 @@ Overlays
             context = map.context,
             map_type = map.map_types[0],
             canvas = map.map_canvas,
-            pt0 = map_type['fromLatLngToPoint'](this.options['position'][0]);
+            pt0 = map_type['fromLatLngToPoint'](this.options['position'][0], map['getZoom']());
 
             // set the line options
             context.save();
@@ -1251,7 +1382,7 @@ Overlays
             
             // loop through the points to draw the line
             for(var i=1; i < this.options['position'].length; i++){
-                var pt1 = map_type['fromLatLngToPoint'](this.options['position'][i]),
+                var pt1 = map_type['fromLatLngToPoint'](this.options['position'][i], map['getZoom']()),
                 x_diff = pt1['x'] - pt0['x'],
                 y_diff = pt1['y'] - pt0['y'];
                 
@@ -1308,14 +1439,14 @@ Overlays
         map = opt_options['map'],
         map_type = map.map_types[0],
         bounds = this['bounds']
-        mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point) : point,
+        mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point, map['getZoom']()) : point,
         threshold = (opt_options['stroke_width'] || 4) / 2,
-        outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point))['lat'], bounds['sw']['lng'] - 1),
+        outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point, map['getZoom']()))['lat'], bounds['sw']['lng'] - 1),
         intersections = 0;
         
         for(var i=0; i < position.length - 1; i++){
-            var pt1 = map_type['fromLatLngToPoint'](position[i]),
-            pt2 = map_type['fromLatLngToPoint'](position[i + 1]),
+            var pt1 = map_type['fromLatLngToPoint'](position[i], map['getZoom']()),
+            pt2 = map_type['fromLatLngToPoint'](position[i + 1], map['getZoom']()),
             multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
             offset = pt1['y'] - (multiplier * pt1['x']),
             should_be_y = (multiplier * mouse_pt['x']) + offset,
@@ -1329,7 +1460,7 @@ Overlays
             }
             
             if(this instanceof Polygon && this.isClosed()){ // if this is a Polygon
-                if(x > map_type['fromLatLngToPoint'](outside_point)['x'] &&
+                if(x > map_type['fromLatLngToPoint'](outside_point, map['getZoom']())['x'] &&
                     x <= mouse_pt['x'] &&
                     mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
                     mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
@@ -1502,7 +1633,7 @@ Overlays
     InfoWindow.prototype['close'] = InfoWindow.prototype.hide = function(){
         var container = this['container'];
         container.parentNode && container.parentNode.removeChild(container);
-        this.options['map'].removeOverlay(this);
+        this.options['map'] && this.options['map'].removeOverlay(this);
     };
     
     InfoWindow.prototype['isOpen'] = function(){
@@ -1621,6 +1752,7 @@ Overlays
     
     ZoomControl.prototype.zoomIn = function(e){
         e.stopPropagation && e.stopPropagation();
+        e.stopImmediatePropagation && e.stopImmediatePropagation();
         var options = this.options;
         options['map'] && options['map']['zoomIn']();
 //        this.checkStatus();
@@ -1628,6 +1760,7 @@ Overlays
     
     ZoomControl.prototype.zoomOut = function(e){
         e.stopPropagation && e.stopPropagation();
+        e.stopImmediatePropagation && e.stopImmediatePropagation();
         var options = this.options;
         options['map'] && options['map']['zoomOut']();
 //        this.checkStatus();
