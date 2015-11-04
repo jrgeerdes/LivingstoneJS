@@ -1,7 +1,7 @@
-osm_webgl
+LivingstoneJS
 =========
 
-A WebGL-based API for Open Street Maps
+A HTML5 canvas-based API for Open Street Maps
 
 
 1. Project objectives
