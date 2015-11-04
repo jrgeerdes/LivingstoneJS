@@ -15,6 +15,6 @@ A HTML5 canvas-based API for Open Street Maps
 
 2. For documentation, check out https://github.com/jrgeerdes/LivingstoneJS/wiki/API-Reference
     
-3. osm_webgl is licensed under the GNU GPL v3.0 license. For more information, check out http://choosealicense.com/licenses/gpl-3.0/
+3. LivingstoneJS is licensed under the GNU GPL v3.0 license. For more information, check out http://choosealicense.com/licenses/gpl-3.0/
 
 4. Happy coding!
