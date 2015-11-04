@@ -1,6 +1,6 @@
 /******************************************************************************
 
-osm_webgl.js is a Javascript library designed to take data from Open Street Maps
+LivingstoneJS.js is a Javascript library designed to take data from Open Street Maps
 and display them in WebGL rather like the new Google Maps UI. For simplicity,
 we're aiming to make functionality and naming schemes largely consistent with
 the Google Maps API, except where it makes sense to do something better. We're
@@ -46,18 +46,18 @@ TODO:
         remove_kids(el);
 
         var map_canvas = this.map_canvas = create_element('canvas', null, {
-            'class' : 'osm_webgl-' + 'container',
+            'class' : 'LivingstoneJS-' + 'container',
             'width' : opt_options['canvas_x_resolution'] || el.offsetWidth,
             'height' : opt_options['canvas_y_resolution'] || el.offsetHeight
         }),
         attrib = this.attribution = create_element('div', null, {
-            'class' : 'osm_webgl-' + 'attribution'
+            'class' : 'LivingstoneJS-' + 'attribution'
         });
         el.appendChild(
             this.inner_container = create_element(
                 'div',
                 [map_canvas, attrib], {
-                    'class' : 'osm_webgl-' + 'style'
+                    'class' : 'LivingstoneJS-' + 'style'
                 }, {
                     'position' : 'relative',
                     'overflow' : 'hidden',
@@ -705,7 +705,7 @@ TODO:
     
     function MapType(opt_options){
         var attribution = create_element('a', null, {
-            'class' : 'osm_webgl-' + 'attribution',
+            'class' : 'LivingstoneJS-' + 'attribution',
             'href' : 'http://www.openstreetmap.org/copyright'
         });
         attribution.innerHTML = '&copy; OpenStreetMap contributors';
@@ -784,7 +784,7 @@ TODO:
         
         var img = tiles[zoom][x][y] = new Image;
         img.onload = create_method_closure(this, function(x, y, zoom){
-            this.tiles[zoom][x][y].osm_webgl_ready = 1; // let's assign a property to verify that the tile is loaded
+            this.tiles[zoom][x][y].LivingstoneJS_ready = 1; // let's assign a property to verify that the tile is loaded
             map.render();
 //            this.placeTile(x, y, zoom);
         }, [x, y, zoom]);
@@ -814,7 +814,7 @@ TODO:
         
 //        if(tileY >= 0 && tileY < total_tiles){
         if(y >= 0 && y < total_tiles){
-            if(img && img.osm_webgl_ready){
+            if(img && img.LivingstoneJS_ready){
                 if(imgX > -tileWidth && imgY > -tileHeight){
                     context.drawImage(img, imgX, imgY);
                 }
@@ -1511,7 +1511,7 @@ Overlays
                             'div', [
                                 document.createTextNode('x')
                             ], {
-                                'class':'osm_webgl-' + 'infowindow-close',
+                                'class':'LivingstoneJS-' + 'infowindow-close',
                                 'onclick' : create_method_closure(this, function(e){
                                     e.stopPropagation && e.stopPropagation();
                                     InfoWindow.prototype['close'].apply(this, []);
@@ -1519,13 +1519,13 @@ Overlays
                             }
                         )
                     ], {
-                        'class' : 'osm_webgl-' + 'infowindow-controls'
+                        'class' : 'LivingstoneJS-' + 'infowindow-controls'
                     }
                 ),
-                this.contentContainer = create_element('div', null, {'class':'osm_webgl-' + 'infowindow-content'}), // content container
-                this.leg = create_element('div', null, {'class':'osm_webgl-' + 'infowindow-base'}) // the leg which stems from the location on the map
+                this.contentContainer = create_element('div', null, {'class':'LivingstoneJS-' + 'infowindow-content'}), // content container
+                this.leg = create_element('div', null, {'class':'LivingstoneJS-' + 'infowindow-base'}) // the leg which stems from the location on the map
             ],{
-                'class' : 'osm_webgl-' + 'infowindow'
+                'class' : 'LivingstoneJS-' + 'infowindow'
             }
         );
         this['setOptions'](opt_options);
@@ -1725,7 +1725,7 @@ Overlays
                     'div',[
                         document.createTextNode('+')
                     ], {
-                        'class' : 'osm_webgl-' + 'zoomcontrol-in ' + 'osm_webgl-' + 'zoomcontrol-inactive',
+                        'class' : 'LivingstoneJS-' + 'zoomcontrol-in ' + 'LivingstoneJS-' + 'zoomcontrol-inactive',
                         'onclick' : create_method_closure(this, ZoomControl.prototype.zoomIn)
                     }
                 ),
@@ -1733,12 +1733,12 @@ Overlays
                     'div', [
                         document.createTextNode('-')
                     ], {
-                        'class' : 'osm_webgl-' + 'zoomcontrol-out ' + 'osm_webgl-' + 'zoomcontrol-inactive',
+                        'class' : 'LivingstoneJS-' + 'zoomcontrol-out ' + 'LivingstoneJS-' + 'zoomcontrol-inactive',
                         'onclick' : create_method_closure(this, ZoomControl.prototype.zoomOut)
                     }
                 )
             ],{
-                'class' : 'osm_webgl-' + 'zoomcontrol'
+                'class' : 'LivingstoneJS-' + 'zoomcontrol'
             }
         );
         
