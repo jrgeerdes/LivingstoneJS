@@ -39,6 +39,13 @@ TODO:
 
 (function(){
 
+    // CONSTANTS
+    var radians_per_degree = Math.PI / 180,
+    degrees_per_radian = 180 / Math.PI,
+    earth_radius = 6378137,
+    meters_per_degree = 2 * Math.PI * earth_radius / 360;
+
+
     // Map is why we're here!
     function Map(el, opt_options){
         el = this.container = (typeof(el) == 'string') ? document.getElementById(el) : el;
@@ -386,6 +393,7 @@ TODO:
 //        }
     };
     Map.prototype.start_drag = function(e){
+        this.start_click_time = (new Date).getTime();
         var handler = create_method_closure(this, Map.prototype.drag, [{
             e : e,
             center : this.get_center_as_pt()
@@ -401,7 +409,7 @@ TODO:
         this.inner_container.style.cursor = 'move';
 
         // call the user-defined drag start listener
-        map_events.process_event.apply(this, ['drag_start']);
+        map_events.process_event.apply(this, ['drag_start', e]);
 //        if(this.drag_start_listener){
 //            this.drag_start_listener();
 //        }
@@ -411,58 +419,32 @@ TODO:
         if(this.mouse_drag_listener){
             remove_dom_event(this.mouse_drag_listener);
             this.mouse_drag_listener = undefined;
-            this.moved && map_events.process_event.apply(this, ['drag_end']);
+            this.moved && map_events.process_event.apply(this, ['drag_end', e]);
         }
 //        remove_dom_event(this.touch_drag_listener);
 
         // reset the cursor
         this.inner_container.style.cursor = '';
-
+        
         // call the user-defined drag end listener
 //        if(this.drag_end_listener){
 //            this.drag_end_listener();
 //        }
     };
     Map.prototype.click = Map.prototype.mousemove = function(e){
-        var re = /click$/;
-        if(e.type.match(re)){ // click listener
-            // call the user-defined click listener
-            map_events.process_event.apply(this, ['click']);
-//            if(this.click_listener){
-//                this.click_listener(e);
-//            }
-        } else { // mousemove listener
-            map_events.process_event.apply(this, ['mousemove']);
-//            if(this.mousemove_listener){
-//                this.mousemove_listener(e);
-//            }
-        }
-        
+        var re = /click$/,
+        coords = new Point(e.clientX, e.clientY);
+
         // calculate canvas coords of the click so we can see if we're in a control or overlay
         // notice that we're going to hand off the event obj to the various controls and overlays
         // and if that control/overlay sets cancelBubble, we're going to kick out.
         
-        var coords = new Point(e.clientX, e.clientY);
         el = e.target;
         while(el){
             coords['x'] += el.offsetLeft;
             coords['y'] += el.offsetTop;
             el = el.offsetParent;
         }
-
-/*
-        // run the coords against the controls first
-        for(var i=0; this.controls && !e.cancelBubble && i<this.controls.length; i++){
-            var control = this.controls[i];
-            if(control['check_for_mouseover'] && control['check_for_mouseover'](e, coords)){
-                if(e.type.match(re)){ // click listener
-                    control.click && control.click(e);
-                } else {
-                    control.mousemove && control.mousemove(e);
-                }
-            }
-        }
-*/
 
         // now, we refigure for map coords...
         coords['x'] += this.offsetLeft;
@@ -474,6 +456,21 @@ TODO:
             this.infowindows
         ];
          
+        // next, we route the event to the right listeners
+        if(e.type.match(re)){ // click listener
+            // call the user-defined click listener
+            var elapsed_time = (new Date).getTime() - this.start_click_time;
+            elapsed_time < 100 && e.target === this.map_canvas && map_events.process_event.apply(this, ['click', latlng, e]);
+//            if(this.click_listener){
+//                this.click_listener(e);
+//            }
+        } else { // mousemove listener
+            map_events.process_event.apply(this, ['mousemove', latlng, e]);
+//            if(this.mousemove_listener){
+//                this.mousemove_listener(e);
+//            }
+        }
+        
         for(var i=0; !e.cancelBubble && i<overlays.length; i++){
             var olays = overlays[i];
             for(var j=0; olays && !e.cancelBubble && j < olays.length; j++){
@@ -499,7 +496,7 @@ TODO:
     
     Map.prototype.dblclick = function(e){
         // process the dblclick event
-        map_events.process_event.apply(this, ['dblclick']);
+        map_events.process_event.apply(this, ['dblclick', e]);
 
 
         var x = e.pageX + this.offsetLeft,
@@ -545,7 +542,7 @@ TODO:
         }
 
         // fire any user-defined touch_start events
-        map_events.process_event.apply(this, ['touch_start']);
+        map_events.process_event.apply(this, ['touch_start', e]);
     };
     
     // end_touch is intended to kill the touch_listener
@@ -553,7 +550,7 @@ TODO:
         this.touch_listener && remove_dom_event(this.touch_listener);
         
         // fire any user-defined touch_end events
-        map_events.process_event.apply(this, ['touch_end']);
+        map_events.process_event.apply(this, ['touch_end', e]);
     };
     
     // pinch is intended to detect pinching movements
@@ -654,7 +651,7 @@ TODO:
         }
         return false;
     };
-    Map.prototype.resize = function(){
+    Map.prototype.resize = function(e){
         var resize_timer = this.resize_timer;
         if(resize_timer){
             clearTimeout(resize_timer);
@@ -670,7 +667,7 @@ TODO:
         }
         
         // if we have a user-defined resize listener
-        map_events.process_event.apply(this, ['resize']);
+        map_events.process_event.apply(this, ['resize', e]);
 //        if(this.resize_listener){
 //            this.resize_listener();
 //        }
@@ -890,10 +887,16 @@ Overlays
             canvas = map.map_canvas,
             bounds = this['bounds'],
             shape = this.shape,
-            position = map_type['fromLatLngToPoint'](
-                opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position'] ? opt_options['position'] : bounds['getCenter'](),
+            pos = opt_options['position'] instanceof Array ? opt_options['position'][0] : opt_options['position'] ? opt_options['position'] : bounds['getCenter'](),
+            position = pos ? map_type['fromLatLngToPoint'](
+                pos,
                 map['getZoom']()
-            );
+            ) : undefined;
+            
+            if(!position){
+                return;
+            }
+            
             position['x'] -= Math.round(canvas.width / (map_type.total_tiles * map_type.tile_width)) * map_type.total_tiles * map_type.tile_width;
             
             if((bounds && bounds['overlaps'](map.viewport['bounds'])) || (position['x'] - map.offsetLeft < canvas.width)){
@@ -954,7 +957,7 @@ Overlays
         }
         
         // if we have a user-defined click listener
-        map_events.process_event.apply(this, ['click']);
+        map_events.process_event.apply(this, ['click', e]);
 //        if(this.click_listener){
 //            this.click_listener(e);
 //        }
@@ -1036,7 +1039,9 @@ Overlays
                     img.src = opt_options['icon']
                 }
             } else if(typeof(opt_options['icon']) == 'function'){ // if we have a custom icon draw method given, we'll call it and hand off everything it will need to do its job
+                context.save();
                 opt_options['icon'].apply(this, [position]); // we assume you can access the map through the opt_options you provided, so you should be able to get the other stuff from it, too.
+                context.restore();
             } else { // if we're drawing a standard marker
                 var pole_width = 6,
                 pole_half = Math.round(pole_width / 2),
@@ -1353,17 +1358,18 @@ Overlays
             'mouseout' : []
         };
         var bounds = this['bounds'] = new LatLngBounds;
-        bounds['extend'].apply(bounds, this.options.position || []);
+        console.log(bounds);
+        LatLngBounds.prototype['extend'].apply(bounds, this.options['position'] || []);
         
-        if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
-            this.draw_();
+        if(this.options['map'] && this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
+            this.options['map'].render();
         }
     }
     extend_class(Line, Overlay);
     
     // TODO: A closed polyline is jagged where the two endpoints meet. This needs to be fixed.
     Line.prototype['draw'] = function(position){
-        if(this.options['position'] && this.options['map']){ // if we have points and a map...
+        if(this.options['position'] && this.options['position'].length && this.options['map']){ // if we have points and a map...
             var opt_options = this.options,
             map = opt_options['map'],
             context = map.context,
@@ -1408,13 +1414,35 @@ Overlays
     
     Line.prototype['extend'] = function(){
         var position = this.options['position'] = this.options['position'] || [],
-        bounds = this['bounds'];
+        bounds = this['bounds'],
+        map = this.options['map'];
         for(var i=0; i<arguments.length; i++){
             var latlng = arguments[i];
-            position.push(latlng);
+            if(this instanceof Polygon){
+                if(position.length == 0){
+                    position.push(latlng); // first point
+                    position.push(new LatLng(latlng['lat'], latlng['lng'])); // last point
+                } else {
+                    position.splice(position.length - 1, 0, latlng)
+                }
+            } else {
+                position.push(latlng);
+            }
             bounds['extend'](latlng);
         }
-        this.draw_();
+        console.log(position);
+        map && map.render();
+    };
+    
+    Line.prototype['getLength'] = function(){
+        var position = this.options['position'],
+        length = 0;
+        for(var i=1; i < position.length; i++){
+            var vertex_a = position[i - 1],
+            vertex_b = position[i];
+            length += vertex_a['distanceFrom'](vertex_b);
+        }
+        return length;
     };
     
     Line.prototype['setOptions'] = function(opt_options){
@@ -1434,43 +1462,45 @@ Overlays
     };
     
     Line.prototype['contains'] = function(point){
-        var opt_options = this.options,
-        position = opt_options['position'],
-        map = opt_options['map'],
-        map_type = map.map_types[0],
-        bounds = this['bounds']
-        mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point, map['getZoom']()) : point,
-        threshold = (opt_options['stroke_width'] || 4) / 2,
-        outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point, map['getZoom']()))['lat'], bounds['sw']['lng'] - 1),
-        intersections = 0;
-        
-        for(var i=0; i < position.length - 1; i++){
-            var pt1 = map_type['fromLatLngToPoint'](position[i], map['getZoom']()),
-            pt2 = map_type['fromLatLngToPoint'](position[i + 1], map['getZoom']()),
-            multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
-            offset = pt1['y'] - (multiplier * pt1['x']),
-            should_be_y = (multiplier * mouse_pt['x']) + offset,
-            x = (mouse_pt['y'] - offset) / multiplier;
+        if(this.options['position'] && this.options['position'].length > 1){
+            var opt_options = this.options,
+            position = opt_options['position'],
+            map = opt_options['map'],
+            map_type = map.map_types[0],
+            bounds = this['bounds']
+            mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point, map['getZoom']()) : point,
+            threshold = (opt_options['stroke_width'] || 4) / 2,
+            outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point, map['getZoom']()))['lat'], bounds['sw']['lng'] - 1),
+            intersections = 0;
             
-            // check if we're over the line
-            if(mouse_pt['x'] >= (Math.min(pt1['x'], pt2['x']) - threshold) && // if the mouse is right of the left limit of the segment,
-                mouse_pt['x'] <= (Math.max(pt1['x'], pt2['x']) + threshold) && // left of the right limit of the segment, and
-                Math.abs(mouse_pt['y'] - should_be_y) <= threshold){ // within the threshold of where the line should be
-                return 1; // then we're moused over
-            }
-            
-            if(this instanceof Polygon && this.isClosed()){ // if this is a Polygon
-                if(x > map_type['fromLatLngToPoint'](outside_point, map['getZoom']())['x'] &&
-                    x <= mouse_pt['x'] &&
-                    mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
-                    mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
-                    intersections++;
+            for(var i=0; i < position.length - 1; i++){
+                var pt1 = map_type['fromLatLngToPoint'](position[i], map['getZoom']()),
+                pt2 = map_type['fromLatLngToPoint'](position[i + 1], map['getZoom']()),
+                multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
+                offset = pt1['y'] - (multiplier * pt1['x']),
+                should_be_y = (multiplier * mouse_pt['x']) + offset,
+                x = (mouse_pt['y'] - offset) / multiplier;
+                
+                // check if we're over the line
+                if(mouse_pt['x'] >= (Math.min(pt1['x'], pt2['x']) - threshold) && // if the mouse is right of the left limit of the segment,
+                    mouse_pt['x'] <= (Math.max(pt1['x'], pt2['x']) + threshold) && // left of the right limit of the segment, and
+                    Math.abs(mouse_pt['y'] - should_be_y) <= threshold){ // within the threshold of where the line should be
+                    return 1; // then we're moused over
+                }
+                
+                if(this instanceof Polygon && this['isClosed']()){ // if this is a Polygon
+                    if(x > map_type['fromLatLngToPoint'](outside_point, map['getZoom']())['x'] &&
+                        x <= mouse_pt['x'] &&
+                        mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
+                        mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
+                        intersections++;
+                    }
                 }
             }
-        }
-        
-        if(this instanceof Polygon && intersections % 2){ // if we have an odd number of intersections, we must be inside the polygonprocess_touch
-            return 1;
+            
+            if(this instanceof Polygon && intersections % 2){ // if we have an odd number of intersections, we must be inside the polygonprocess_touch
+                return 1;
+            }
         }
     };
     make_public('Line', Line);
@@ -1487,14 +1517,47 @@ Overlays
             'mouseover' : [],
             'mouseout' : []
         };
-        var bounds = this.bounds = new LatLngBounds;
+        var bounds = this['bounds'] = new LatLngBounds;
         bounds['extend'].apply(bounds, this.options.position || []);
 
-        if(this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
-            this.draw_();
+        if(this.options['map'] && this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
+            this.options['map'].render();
         }
     }
     extend_class(Polygon, Line);
+    Polygon.prototype['getArea'] = function(){
+        var points = this.options['position'],
+        total_angle = 0,
+        planar_area = 0;
+        for(var i=0; i<points.length; i++){
+            var latlng1 = points[i],
+            latlng2 = points[(i + 1) % points.length],
+            latlng3 = points[(i + 2) % points.length],
+            x1 = latlng1['lng'] * meters_per_degree * Math.cos(latlng1['latRadians']()),
+            y1 = latlng1['lat'] * meters_per_degree,
+            x2 = latlng2['lng'] * meters_per_degree * Math.cos(latlng2['latRadians']()),
+            y2 = latlng2['lat'] * meters_per_degree;
+            
+            total_angle += getAngle(latlng1, latlng2, latlng3);
+            planar_area += (x1 * y2) - (x2 * y1);
+//            planar_area += (x1 - x2) * (y1 - y2);
+        }
+        
+        // if the planar_area is less than 1 million m2, we don't have to worry too much about curvature, so we'll kick that back
+        if(Math.abs(planar_area) <= 1000000) return Math.abs(planar_area / 2);
+        
+        // otherwise, we need to account for the curvature of the earth
+        // TODO: THIS IS BUGGY!!!!
+        var planar_angle = (points.length - 2) * 180,
+        spherical_excess = total_angle - planar_angle; // the difference in angles between what would be on a plane and what is on the spherical earth
+        if(spherical_excess >= 420){
+            total_angle = points.length * 360 - total_angle;
+            spherical_excess = total_angle - planar_angle;
+        } else if(spherical_excess > 300 && spherical_excess < 420){
+            spherical_excess = Math.abs(360 - spherical_excess);
+        }
+        return Math.abs(spherical_excess * radians_per_degree * Math.pow(earth_radius, 2));
+    };
     
     make_public('Polygon', Polygon);
     
@@ -1704,12 +1767,35 @@ Overlays
         this['lat'] = lat;
         this['lng'] = lng;
     }
+    
     LatLng.prototype['lat'] = function(){
         return this['lat'];
-    }
+    };
+    
     LatLng.prototype['lng'] = function(){
         return this['lng'];
+    };
+    
+    LatLng.prototype['latRadians'] = function(){
+        return this['lat'] * radians_per_degree;
+    };
+    
+    LatLng.prototype['lngRadians'] = function(){
+        return this['lng'] * radians_per_degree;
+    };
+    
+    LatLng.prototype['distanceFrom'] = function(latlng){
+        var constant = 111206,
+        l = constant * (this['lat'] - latlng['lat']),
+        w = constant * (this['lng'] - latlng['lng']) * Math.cos(latlng['lat'] / 57.3),
+        h = Math.pow(Math.pow(l, 2) + Math.pow(h, 2), .5);
+        return h;
+    };
+    
+    LatLng.prototype['equals'] = function(latlng){
+        return latlng['lat'] == this['lat'] && latlng['lng'] == this['lng'];
     }
+    
     make_public('LatLng', LatLng);
 
 
@@ -1810,8 +1896,8 @@ Overlays
         }
     };
 
-    map_events['trigger'] = function(obj, listener){ // as the name suggests, triggers an event listener on an object
-        map_events.process_event.apply(obj, [listener]);
+    map_events['trigger'] = function(obj, listener, e){ // as the name suggests, triggers an event listener on an object
+        map_events.process_event.apply(obj, [listener, e]);
     };
 
     // process_event is designed to process an array of event listeners, triggering all of the appropriate methods
@@ -1850,6 +1936,26 @@ Overlays
     make_public('events', map_events);
     
     
+
+    // geometry utility functions
+    var geometry = {},
+    getAngle = geometry['getAngle'] = function(latlng1, latlng2, latlng3){ // calculates the angle formed by line segments intersecting at latlng2
+        var angle = getBearing(latlng2, latlng1) - getBearing(latlng2, latlng3);
+        while(angle < 0){
+            angle += 360;
+        }
+        return angle;
+    },
+    getBearing = geometry['getBearing'] = function(latlng1, latlng2){ // calculates the bearing from latlng1 to latlng2
+        bearing = -Math.atan2(Math.sin(latlng1['lngRadians']() - latlng2['lngRadians']()) * Math.cos(latlng2['latRadians']()),Math.cos(latlng1['latRadians']()) * Math.sin(latlng2['latRadians']()) - Math.sin(latlng1['latRadians']()) * Math.cos(latlng1['lngRadians']() - latlng2['lngRadians']()));
+        while(bearing < 0){
+            bearing += Math.PI * 2;
+        }
+        return bearing * degrees_per_radian;
+    };
+    
+    make_public('geometry', geometry);
+
     
     // Utility functions
     function extend_class(child_class, parent_class){
