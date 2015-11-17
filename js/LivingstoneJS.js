@@ -92,7 +92,8 @@ TODO:
             'drag' : [],
             'resize' : [],
             'touch_start' : [],
-            'touch_end' : []
+            'touch_end' : [],
+            'mousewheel' : []
         };
 
 
@@ -149,19 +150,22 @@ TODO:
         this.context = context;
         
         // set up the event listeners
-        var mousedownlistener = create_method_closure(this, Map.prototype.start_drag),
-        mouseuplistener = create_method_closure(this, Map.prototype.end_drag),
+        var mousedown_listener = create_method_closure(this, Map.prototype.start_drag),
+        mouseup_listener = create_method_closure(this, Map.prototype.end_drag),
         touchstart_listener = create_method_closure(this, Map.prototype.start_touch);
-        touchend_listener = create_method_closure(this, Map.prototype.end_touch);
-        add_dom_event('mousedown', mousedownlistener, map_canvas);
+        touchend_listener = create_method_closure(this, Map.prototype.end_touch),
+        mousewheel_listener = create_method_closure(this, Map.prototype.mousewheel);
+        add_dom_event('mousedown', mousedown_listener, map_canvas);
         add_dom_event('touchstart', touchstart_listener, map_canvas);
-        add_dom_event('mouseup', mouseuplistener); // we attach the mouseup to the window, in case someone drags off the map and releases there
+        add_dom_event('mouseup', mouseup_listener); // we attach the mouseup to the window, in case someone drags off the map and releases there
         add_dom_event('touchend', touchend_listener, window);
-        add_dom_event('touchleave', mouseuplistener, map_canvas);
-        add_dom_event('touchcancel', mouseuplistener, window);
+        add_dom_event('touchleave', mouseup_listener, map_canvas);
+        add_dom_event('touchcancel', mouseup_listener, window);
         add_dom_event('click', create_method_closure(this, Map.prototype.click), map_canvas);
         add_dom_event('dblclick', create_method_closure(this, Map.prototype.dblclick), map_canvas);
         add_dom_event('mousemove', create_method_closure(this, Map.prototype.mousemove), map_canvas);
+        add_dom_event('mousewheel', mousewheel_listener, map_canvas);
+        add_dom_event('DOMMouseScroll', mousewheel_listener, map_canvas);
     };
     Map.prototype['setMapType'] = function(map_type){
         var attrib = this.attribution;
@@ -196,7 +200,8 @@ TODO:
         min_zoom = opt_options['min_zoom'] || 0,
         canvas = this.map_canvas,
         original_zoom = viewport['zoom'],
-        map_type = this.map_types[0];
+        map_types = this.map_types,
+        map_type = map_types[0];
         for(var i in new_viewport){
             if(i == 'zoom'){
                 new_viewport[i] = Math.max(new_viewport[i], min_zoom);
@@ -213,9 +218,10 @@ TODO:
             half_height = canvas.height / 2,
             sw = map_type['fromPointToLatLng'](new Point(centerPt['x'] - half_width, centerPt['y'] - half_height), this['getZoom']()),
             ne = map_type['fromPointToLatLng'](new Point(centerPt['x'] + half_width, centerPt['y'] + half_height), this['getZoom']());
+            
             viewport['bounds'] = new LatLngBounds(sw, ne);
         }
-        
+                
         this.render();
         map_events.process_event.apply(this, ['viewport_changed']);
         if(original_zoom != viewport['zoom']){ // if the zoom level changed, let's fire the more specific zoom changed event
@@ -494,17 +500,15 @@ TODO:
         
     };
     
-    Map.prototype.dblclick = function(e){
-        // process the dblclick event
-        map_events.process_event.apply(this, ['dblclick', e]);
-
-
+    Map.prototype.dblclick = function(e, zoom_out){
+        this.scroll_timeout = undefined;
         var x = e.pageX + this.offsetLeft,
         y = e.pageY + this.offsetTop,
         target = e.target,
         curr_center = this.map_types[0]['fromLatLngToPoint'](this.viewport['center'], this['getZoom']()),
         map_type = this.map_types[0],
-        new_center;
+        new_center = this.viewport['center'],
+        zoom = this.viewport['zoom'];
         
         while(target){
             x += target.offsetLeft;
@@ -512,14 +516,26 @@ TODO:
             target = target.offsetParent;
         }
         
-        new_center = map_type['fromPointToLatLng'](new Point(
-            curr_center['x'] + ((x - curr_center['x']) / 2),
-            curr_center['y'] + ((y - curr_center['y']) / 2)
-        ), this['getZoom']());
+        if(zoom_out && this.viewport['zoom'] > map_type.options['min_zoom']){
+            new_center = map_type['fromPointToLatLng'](new Point(
+                curr_center['x'] - (x - curr_center['x']),
+                curr_center['y'] - (y - curr_center['y'])
+            ), zoom);
+            zoom--;
+        } else if (this.viewport['zoom'] < map_type.options['max_zoom']){
+            new_center = map_type['fromPointToLatLng'](new Point(
+                curr_center['x'] + ((x - curr_center['x']) / 2),
+                curr_center['y'] + ((y - curr_center['y']) / 2)
+            ), zoom);
+            zoom++;
+        }
         this['setViewport']({
             'center' : new_center,
-            'zoom' : Math.min(map_type.options['max_zoom'], this.viewport['zoom'] + 1)
+            'zoom' : zoom
         });
+
+        // process the dblclick event
+        map_events.process_event.apply(this, [(e.type == 'wheel' ? 'mousewheel' : 'dblclick'), e]);
         
     };
     
@@ -599,7 +615,15 @@ TODO:
             }
             this.end_touch();
         }
-    }
+    };
+    
+    Map.prototype.mousewheel = function(e){
+        var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.details)));
+        
+        if(!this.scroll_timeout){
+            this.scroll_timeout = setTimeout(create_method_closure(this, Map.prototype.dblclick, [e, delta < 0]), 500);
+        }
+    };
     
     Map.prototype.drag = function(anchor, e){
 // this seems to work in Android browser, Chrome mobile. But it doesn't seem to work on iOS Safari
@@ -617,7 +641,7 @@ TODO:
             'center' : this.map_types[0]['fromPointToLatLng'](new_center_pt, this['getZoom']())
         });
 
-/*
+
         // for debugging, we'll include a utility to display the mouse coords in the upper-left corner of the map
         if(0){
             var canvas = this.map_canvas,
@@ -632,7 +656,7 @@ TODO:
             context.fillText(coords, canvas.width - width - 2, 36);
 //            console.log(e);
         }
-*/        
+        
 
         map_events.process_event.apply(this, ['drag', {
             'e' : e,
@@ -711,14 +735,17 @@ TODO:
             'min_zoom' : 0,
             'attribution' : attribution
         };
-        for(var i in opt_options){
-            this.options[i] = opt_options[i];
-        }
+        this['setOptions'](opt_options);
         
         if(this.options['attribution'] && !this.options['attribution'].nodeType){
             this.options['attribution'] = document.createTextNode(this.options['attribution']);
         }
     }
+    MapType.prototype['setOptions'] = function(opt_options){
+        for(var i in opt_options){
+            this.options[i] = opt_options[i];
+        }
+    };
     MapType.prototype['fromLatLngToPoint'] = function(pt, z){
         var lat = pt['lat'],
         lng = pt['lng'],
@@ -800,17 +827,18 @@ TODO:
         tileWidth = this.tile_width = this.tile_width || (opt_options['tileWidth'] || 256),
         tileHeight = this.tile_height = this.tile_height || (opt_options['tileHeight'] || 256);
         
-        while(tileX < 0){
-            tileX = total_tiles + tileX;
-        }
+//        tileX = tileX % total_tiles;
+//        while(tileX < 0){
+//            tileX = total_tiles + tileX;
+//        }
 
-        var img = tiles[zoom] && tiles[zoom][tileX]? tiles[zoom][tileX][tileY] : undefined,
+        var img = tiles[zoom] && tiles[zoom][tileX % total_tiles]? tiles[zoom][tileX % total_tiles][tileY] : undefined,
         imgX = (x * tileWidth) - map.offsetLeft,
         imgY = (y * tileHeight) - map.offsetTop,
         context = map.context;
         
 //        if(tileY >= 0 && tileY < total_tiles){
-        if(y >= 0 && y < total_tiles){
+        if(y >= 0 && y < total_tiles && (!opt_options['no_infinite_scroll'] || x >= 0 && x < total_tiles)){
             if(img && img.LivingstoneJS_ready){
                 if(imgX > -tileWidth && imgY > -tileHeight){
                     context.drawImage(img, imgX, imgY);
@@ -1358,7 +1386,7 @@ Overlays
             'mouseout' : []
         };
         var bounds = this['bounds'] = new LatLngBounds;
-        console.log(bounds);
+//        console.log(bounds);
         LatLngBounds.prototype['extend'].apply(bounds, this.options['position'] || []);
         
         if(this.options['map'] && this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
@@ -1430,7 +1458,7 @@ Overlays
             }
             bounds['extend'](latlng);
         }
-        console.log(position);
+//        console.log(position);
         map && map.render();
     };
     
