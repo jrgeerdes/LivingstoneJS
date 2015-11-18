@@ -42,8 +42,7 @@ TODO:
     // CONSTANTS
     var radians_per_degree = Math.PI / 180,
     degrees_per_radian = 180 / Math.PI,
-    earth_radius = 6378137,
-    meters_per_degree = 2 * Math.PI * earth_radius / 360;
+    earth_radius = 6378137;
 
 
     // Map is why we're here!
@@ -733,7 +732,8 @@ TODO:
         this.options = { // defaults
             'max_zoom' : 19,
             'min_zoom' : 0,
-            'attribution' : attribution
+            'attribution' : attribution,
+            'earth_radius' : earth_radius
         };
         this['setOptions'](opt_options);
         
@@ -1553,38 +1553,52 @@ Overlays
         }
     }
     extend_class(Polygon, Line);
-    Polygon.prototype['getArea'] = function(){
-        var points = this.options['position'],
-        total_angle = 0,
-        planar_area = 0;
-        for(var i=0; i<points.length; i++){
-            var latlng1 = points[i],
-            latlng2 = points[(i + 1) % points.length],
-            latlng3 = points[(i + 2) % points.length],
-            x1 = latlng1['lng'] * meters_per_degree * Math.cos(latlng1['latRadians']()),
-            y1 = latlng1['lat'] * meters_per_degree,
-            x2 = latlng2['lng'] * meters_per_degree * Math.cos(latlng2['latRadians']()),
-            y2 = latlng2['lat'] * meters_per_degree;
+    Polygon.prototype['getArea'] = function(r){
+        var opt_options = this.options,
+        map = opt_options['map'],
+        position = opt_options['position'],
+        x = 0,
+        latlng1 = position[0];
+        if(!r && map && map.options['map_type'] && map['getMapType']()[0]){
+            r = map['getMapType']()[0].options['earth_radius']; // default radius of earth
+        }
+        
+        for(var i=1; i<position.length - 1; i++){
+            var a = 0,
+            b = 0,
+            f = 0,
+            c = [latlng1, position[i], position[i + 1], latlng1],
+            d = [],
+            e = [];
             
-            total_angle += getAngle(latlng1, latlng2, latlng3);
-            planar_area += (x1 * y2) - (x2 * y1);
-//            planar_area += (x1 - x2) * (y1 - y2);
+            for(var j=0; j<3; j++){
+                var lat1 = c[j]['latRadians'](),
+                lat2 = c[j + 1]['latRadians'](),
+                lng1 = c[j]['lngRadians'](),
+                lng2 = c[j + 1]['lngRadians']();
+                d[j] = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin((lat1 - lat2) / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin((lng1 - lng2) / 2), 2)));
+                f += d[j];
+                
+                var g = e[j] = [
+                    Math.cos(lat1) * Math.cos(lng1),
+                    Math.cos(lat1) * Math.sin(lng1),
+                    Math.sin(lat1)
+                ];
+            }
+            
+            f /= 2;
+            c = Math.tan(f/2);
+            for(j=0; j<3; j++){
+                c *= Math.tan((f - d[j]) / 2);
+            }
+            
+            a = 4 * Math.atan(Math.sqrt(Math.abs(c)));
+            b = 0 < e[0][0] * e[1][1] * e[2][2] + e[1][0] * e[2][1] * e[0][2] + e[2][0] * e[0][1] * e[1][2] - e[0][0] * e[1][2] - e[1][0] * e[0][1] * e[2][2] - e[2][0] * e[1][1] * e[0][2] ? 1 : -1;
+            
+            x += a * b;
         }
         
-        // if the planar_area is less than 1 million m2, we don't have to worry too much about curvature, so we'll kick that back
-        if(Math.abs(planar_area) <= 1000000) return Math.abs(planar_area / 2);
-        
-        // otherwise, we need to account for the curvature of the earth
-        // TODO: THIS IS BUGGY!!!!
-        var planar_angle = (points.length - 2) * 180,
-        spherical_excess = total_angle - planar_angle; // the difference in angles between what would be on a plane and what is on the spherical earth
-        if(spherical_excess >= 420){
-            total_angle = points.length * 360 - total_angle;
-            spherical_excess = total_angle - planar_angle;
-        } else if(spherical_excess > 300 && spherical_excess < 420){
-            spherical_excess = Math.abs(360 - spherical_excess);
-        }
-        return Math.abs(spherical_excess * radians_per_degree * Math.pow(earth_radius, 2));
+        return Math.abs(x * Math.pow(r, 2));
     };
     
     make_public('Polygon', Polygon);
@@ -1812,12 +1826,13 @@ Overlays
         return this['lng'] * radians_per_degree;
     };
     
-    LatLng.prototype['distanceFrom'] = function(latlng){
-        var constant = 111206,
-        l = constant * (this['lat'] - latlng['lat']),
-        w = constant * (this['lng'] - latlng['lng']) * Math.cos(latlng['lat'] / 57.3),
-        h = Math.pow(Math.pow(l, 2) + Math.pow(h, 2), .5);
-        return h;
+    LatLng.prototype['distanceFrom'] = function(latlng, r){
+        var lat1 = this['latRadians'](),
+        lng1 = this['lngRadians'](),
+        lat2 = this['latRadians'](),
+        lng2 = this['lngRadians'](),
+        d = Math.acos(Math.sin(lat1) * Math.sin(lat2) + Math.cos(lat1) * Math.cos(lat2) * Math.cos((latlng['lng'] - this['lng']) * radians_per_degree)) * (r || earth_radius);
+        return d;
     };
     
     LatLng.prototype['equals'] = function(latlng){
