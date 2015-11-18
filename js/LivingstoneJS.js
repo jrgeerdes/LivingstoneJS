@@ -1903,16 +1903,27 @@ Overlays
 
 
     function Geocoder(){
-        var geocoders = Geocoder.geocoders;
-        this.index = Geocoder.geocoders.length;
+        var geocoders = Geocoder['geocoders'];
+        this.index = geocoders.length;
         geocoders.push(this);
     }
     Geocoder.prototype['geocode'] = function(q, callback){
-        q = typeof(q) == 'object' ? q : {'q' : q};
+        var reverse_geocode = 0;
+        if(q instanceof LatLng){
+            q = {
+                'lat' : q['lat'],
+                'lon' : q['lng']
+            }
+            reverse_geocode = 1;
+        } else if(typeof(q) != 'object'){
+            q = {
+                'q' : q
+            }
+        }
         q['format'] = 'json';
         q['json_callback'] = 'window._osm.Geocoder.geocoders[' + this.index + '].callback';
         
-        var url = 'http://nominatim.openstreetmap.org/search?';
+        var url = 'http://nominatim.openstreetmap.org/' + (reverse_geocode ? 'reverse' : 'search') + '?';
         for(var i in q){
             url += '&' + encodeURIComponent(i) + '=' + encodeURIComponent(q[i]);
         }
@@ -1935,7 +1946,7 @@ Overlays
             this.timeout = undefined;
             
             var r = {};
-            if(response[0]){
+            if(response instanceof Array && response[0]){
                 response = response[0];
                 r = {
                     'geometry' : {
@@ -1948,8 +1959,12 @@ Overlays
                     'attribution' : response['licence'],
                     'type' : response['type']
                 };
-            } else if(response['error']) {
-                r['error'] = response['error'];
+            } else{
+                r = response;
+                if(r['licence']){
+                    r['attribution'] = r['licence'];
+                    delete(r['licence']);
+                }
             }
             this.dev_callback && this.dev_callback(r);
             this.dev_callback = undefined;
