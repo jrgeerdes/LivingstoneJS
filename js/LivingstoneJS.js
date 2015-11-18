@@ -1900,6 +1900,70 @@ Overlays
         }
     };
     
+
+
+    function Geocoder(){
+        var geocoders = Geocoder.geocoders;
+        this.index = Geocoder.geocoders.length;
+        geocoders.push(this);
+    }
+    Geocoder.prototype['geocode'] = function(q, callback){
+        q = typeof(q) == 'object' ? q : {'q' : q};
+        q['format'] = 'json';
+        q['json_callback'] = 'window._osm.Geocoder.geocoders[' + this.index + '].callback';
+        
+        var url = 'http://nominatim.openstreetmap.org/search?';
+        for(var i in q){
+            url += '&' + encodeURIComponent(i) + '=' + encodeURIComponent(q[i]);
+        }
+        
+        var script = create_element('script', null, {
+            'type' : 'text/javascript',
+            'src' : url,
+            'onload' : function(){this.parentNode.removeChild(this);}
+        });
+        
+        document.getElementsByTagName('head')[0].appendChild(script);
+        
+        this.dev_callback = callback;
+        
+        this.timeout = setTimeout(create_method_closure(this, Geocoder.prototype['callback'], [{'error':Geocoder['status']['TIMED_OUT']}]), 2.5 * 1000);
+    };
+    Geocoder.prototype['callback'] = function(response){
+        if(this.timeout){
+            clearTimeout(this.timeout);
+            this.timeout = undefined;
+            
+            var r = {};
+            if(response[0]){
+                response = response[0];
+                r = {
+                    'geometry' : {
+                        'latlng' : new LatLng(parseFloat(response['lat']), parseFloat(response['lon'])),
+                        'bounds' : new LatLngBounds(
+                            new LatLng(parseFloat(response['boundingbox'][0]), parseFloat(response['boundingbox'][2])),
+                            new LatLng(parseFloat(response['boundingbox'][1]), parseFloat(response['boundingbox'][3]))
+                        )
+                    },
+                    'attribution' : response['licence'],
+                    'type' : response['type']
+                };
+            } else if(response['error']) {
+                r['error'] = response['error'];
+            }
+            this.dev_callback && this.dev_callback(r);
+            this.dev_callback = undefined;
+        }
+        
+    };
+    Geocoder['status'] = {
+        'TIMED_OUT' : 408
+    };
+    Geocoder['geocoders'] = [];
+    
+    make_public('Geocoder', Geocoder);
+
+
     
     // Map Event Handling
     var map_events = {};
@@ -1962,8 +2026,9 @@ Overlays
 
     
     make_public('events', map_events);
-    
-    
+
+
+
 
     // geometry utility functions
     var geometry = {},
