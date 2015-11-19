@@ -23,7 +23,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
     <head>
         <title>OSM - WebGL Library Testing</title>
         <meta name="viewport" content="width=device-width, user-scalable=no" />
-        <link rel="stylesheet" type="text/css" href="css/osm_webgl.css" />
+        <link rel="stylesheet" type="text/css" href="css/LivingstoneJS.css" />
         <style type="text/css">
             html, body{
                 height: 100%;
@@ -36,7 +36,7 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
                 width: 100%;
             }
         </style>
-        <script type="text/javascript" src="js/osm_webgl.js"></script>
+        <script type="text/javascript" src="js/LivingstoneJS.js"></script>
         <script type="text/javascript">
             window._osm.events.addDOMEvent('load', function(){
                 // these are the known coordinates of Debra Heights Wesleyan Church in Des Moines, IA.
@@ -85,6 +85,29 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
                     ],
                     'map' : map
                 });
+                
+                
+                // place a polygon, complete with exclusion zone
+                var poly = window.polygon = new window._osm.Polygon({
+                    'position' : [
+                        [
+                            latlng,
+                            new window._osm.LatLng(latlng.lat + .05, latlng.lng + .05),
+                            new window._osm.LatLng(latlng.lat, latlng.lng + .1),
+                            new window._osm.LatLng(latlng.lat - .05, latlng.lng + .05),
+                            latlng
+                        ], [
+                            new window._osm.LatLng(latlng.lat, latlng.lng + .025),
+                            new window._osm.LatLng(latlng.lat + .025, latlng.lng + .05),
+                            new window._osm.LatLng(latlng.lat, latlng.lng + .075),
+                            new window._osm.LatLng(latlng.lat - .025, latlng.lng + .05),
+                            new window._osm.LatLng(latlng.lat, latlng.lng + .025),
+                        ]
+                    ],
+                    'map' : map,
+                    'fill_opacity' : .25,
+                    'stroke_opacity' : .75
+                })
                 
                 
                 
