@@ -273,8 +273,9 @@ TODO:
         context = this.context;
         
         if(context){
-        context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
-        context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+//            context.fillStyle = this.options['background_color'] || 'rgba(100, 100, 100, 1)';
+//            context.fillRect(0, 0, map_canvas.width, map_canvas.height);
+            context.clearRect(0, 0, map_canvas.width, map_canvas.height);
         }
         
         if(viewport && map_type){
@@ -286,8 +287,24 @@ TODO:
                 this['fitBounds'](viewport['bounds']);
             }
                     
+            // render overlays, markers, and infowindows
+            var overlays = [
+                this.overlays,
+                this.markers,
+                this.infowindows
+            ];
+            for(var i = 0; i < overlays.length; i++){
+                var olays = overlays[i];
+                for(var j = 0; olays && j < olays.length; j++){
+                    var overlay = olays[j];
+                    overlay.draw_();
+                }
+            }
+
+
             // render the tiles
-            for(var i=0; i<this.map_types.length; i++){
+            // we render the layers backwards (i.e., from last to first) because we're drawing them all with composite destination-over
+            for(var i=this.map_types.length - 1; i>=0; i--){
                 var map_type = this.map_types[i],
                 tileWidth = map_type.options['width'] || 256,
                 tileHeight = map_type.options['height'] || 256,
@@ -302,19 +319,6 @@ TODO:
                 }
             }
         
-            // render overlays, markers, and infowindows
-            var overlays = [
-                this.overlays,
-                this.markers,
-                this.infowindows
-            ];
-            for(var i = 0; i < overlays.length; i++){
-                var olays = overlays[i];
-                for(var j = 0; olays && j < olays.length; j++){
-                    var overlay = olays[j];
-                    overlay.draw_();
-                }
-            }
 
             map_events.process_event.apply(this, ['map_render']);
 //            if(this.map_render_listener){
@@ -838,6 +842,8 @@ TODO:
         context = map.context;
         
 //        if(tileY >= 0 && tileY < total_tiles){
+        context.save();
+        context.globalCompositeOperation = 'destination-over';
         if(y >= 0 && y < total_tiles && (!opt_options['no_infinite_scroll'] || x >= 0 && x < total_tiles)){
             if(img && img.LivingstoneJS_ready){
                 if(imgX > -tileWidth && imgY > -tileHeight){
@@ -850,12 +856,13 @@ TODO:
             context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 1)';
             context.fillRect(imgX, imgY, tileWidth, tileHeight);
         }
+        context.restore();
     };
     make_public('MapType', MapType);
     
     MapType['STREET_MAP'] = new MapType
     
-    MapType['TERRAIN'] = new MapType({
+    MapType['TERRAIN_OVERLAY'] = new MapType({
         'max_zoom' : 19,
         'min_zoom' : 0,
         'resolveTileUrl' : function(x, y, zoom){
@@ -863,9 +870,30 @@ TODO:
         }
     });
     
+    var STAMEN_ATTRIBUTION = create_element('span', [
+        document.createTextNode('Map tiles by '),
+        create_element('a', [document.createTextNode('Stamen Design')],{'href':'http://stamen.com'}),
+        document.createTextNode(', under '),
+        create_element('a', [document.createTextNode('CC BY 3.0')],{'href':'http://creativecommons.org/licenses/by/3.0'}),
+        document.createTextNode('. Data by '),
+        create_element('a', [document.createTextNode('OpenStreetMap')],{'href':'http://openstreetmap.org'}),
+        document.createTextNode('under'),
+        create_element('a', [document.createTextNode('CC BY SA')],{'href':'http://creativecommons.org/licenses/by-sa/3.0'})
+    ]);
+    
+    MapType['TERRAIN'] = new MapType({
+        'max_zoom' : 18,
+        'min_zoom' : 4,
+        'attribution' : STAMEN_ATTRIBUTION.cloneNode(1),
+        'resolveTileUrl' : function(x, y, zoom){
+            return 'http://c.tile.stamen.com/terrain/' + zoom + '/' + x + '/' + y + '.jpg';
+        }
+    });
+    
     MapType['WATERCOLOR'] = new MapType({
         'max_zoom' : 19,
-        'min_zoom' : 0,
+        'min_zoom' : 4,
+        'attribution' : STAMEN_ATTRIBUTION.cloneNode(1),
         'resolveTileUrl' : function(x, y, zoom){
             return 'http://c.tile.stamen.com/watercolor/' + zoom + '/' + x + '/' + y + '.jpg';
         }
@@ -1385,9 +1413,20 @@ Overlays
             'mouseover' : [],
             'mouseout' : []
         };
-        var bounds = this['bounds'] = new LatLngBounds;
+
+        if(!this.options['position']){
+            this.options['position'] = [[]];
+        }
+        if(this.options['position'][0] instanceof LatLng){
+            this.options['position'][0] = this.options['position'];
+        }
+
+        var bounds = this['bounds'] = new LatLngBounds,
+        primary_form = this.options['position'][0];
+        for(var i=0; i<primary_form.length; i++){
+            bounds.extend(primary_form[i]);
+        }
 //        console.log(bounds);
-        LatLngBounds.prototype['extend'].apply(bounds, this.options['position'] || []);
         
         if(this.options['map'] && this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
             this.options['map'].render();
@@ -1411,39 +1450,70 @@ Overlays
             context.strokeStyle = opt_options['stroke_color'] || 'rgb(0, 200, 0)';
             context.fillStyle = opt_options['fill_color'] || 'rgb(150, 200, 150)';
             context.lineJoin = opt_options['corner_style'] || 'miter';
-            context.beginPath();
-            context.moveTo(position['x'] - map.offsetLeft, position['y'] - map.offsetTop);
+            
+            if(opt_options['position'][0] instanceof LatLng){
+                opt_options['position'] = [
+                    opt_options['position']
+                ];
+            }
             
             // loop through the points to draw the line
-            for(var i=1; i < this.options['position'].length; i++){
-                var pt1 = map_type['fromLatLngToPoint'](this.options['position'][i], map['getZoom']()),
-                x_diff = pt1['x'] - pt0['x'],
-                y_diff = pt1['y'] - pt0['y'];
+            for(var i=0; i < opt_options['position'].length; i++){
+                var position = opt_options['position'][i];
                 
-                context.lineTo(position['x'] + x_diff - map.offsetLeft, position['y'] + y_diff - map.offsetTop);
+                for(var j=0; j < position.length; j++){
+                    var pt1 = map_type['fromLatLngToPoint'](position[j], map['getZoom']()),
+                    x = pt1['x'] - map.offsetLeft,
+                    y = pt1['y'] - map.offsetTop;
+                    
+                    if(j == 0){
+                        context.beginPath();
+                        context.moveTo(x, y);
+                    } else {
+                        context.lineTo(x, y);
+                    }
+                }
+                
+                if(this.isClosed()){
+                    context.closePath();
+                }
+            
+                if(this instanceof Polygon && this['isClosed']()){ // if this is a polygon, we're going to fill the thing
+                    if(i == 0){
+                        context.globalCompositeOperation = 'source-over';
+                        context.globalAlpha = opt_options['fill_opacity'] || 1;
+                    } else {
+                        context.globalCompositeOperation = 'destination-out';
+                        context.globalAlpha = 1;
+                    }
+                    context.fill();
+                }
+
+                // stroke the line
+                context.globalCompositeOperation = 'source-over';
+                context.globalAlpha = opt_options['stroke_opacity'] || 1;
+                context.stroke();
             }
             
-            if(this['isClosed']()){
-                context.closePath();
-            }
-
-            if(this instanceof Polygon && this['isClosed']()){ // if this is a polygon, we're going to fill the thing
-                context.globalAlpha = opt_options['fill_opacity'] || 1;
-                context.fill();
-            }
-
-            // stroke the line
-            context.globalAlpha = opt_options['stroke_opacity'] || 1;
-            context.stroke();
             
             context.restore();
         }
     };
     
     Line.prototype['extend'] = function(){
-        var position = this.options['position'] = this.options['position'] || [],
+        if(!this.options['position']){
+            this.options['position'] = [];
+        }
+        var position = this.options['position'][0] = this.options['position'][0] || [],
         bounds = this['bounds'],
         map = this.options['map'];
+        
+        if(position instanceof LatLng){
+            position = this.options['position'];
+            this.options['position'] = [
+                position
+            ];
+        }
         for(var i=0; i<arguments.length; i++){
             var latlng = arguments[i];
             if(this instanceof Polygon){
@@ -1476,13 +1546,16 @@ Overlays
     Line.prototype['setOptions'] = function(opt_options){
         Overlay.prototype['setOptions'].apply(this, [opt_options]);
         if(this.options['position'] && this.options['map']){
-            this.draw_();
+            this.options['map'].render();
         }
     };
     
     Line.prototype['isClosed'] = function(opt_options){
         var position = this.options['position'];
-        return position && position.length > 1 && position[0]['lat'] == position[position.length - 1]['lat'] && position[0]['lng'] == position[position.length - 1]['lng'];
+        if(position.length && position[0] instanceof Array && position[0][0]['equals'](position[0][position[0].length - 1])){
+            return 1;
+        }
+//        return position && position.length > 1 && position[0]['lat'] == position[position.length - 1]['lat'] && position[0]['lng'] == position[position.length - 1]['lng'];
     };
     
     Line.prototype['check_for_mouseover'] = function(arg){
@@ -1490,44 +1563,50 @@ Overlays
     };
     
     Line.prototype['contains'] = function(point){
-        if(this.options['position'] && this.options['position'].length > 1){
-            var opt_options = this.options,
-            position = opt_options['position'],
-            map = opt_options['map'],
-            map_type = map.map_types[0],
-            bounds = this['bounds']
-            mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point, map['getZoom']()) : point,
+        var opt_options = this.options,
+        map = opt_options['map'],
+        map_type = map.map_types[0],
+        bounds = this['bounds'];
+        if(bounds['sw'] && bounds['ne']){
+            var mouse_pt = point instanceof LatLng ? map_type['fromLatLngToPoint'](point, map['getZoom']()) : point,
             threshold = (opt_options['stroke_width'] || 4) / 2,
             outside_point = new LatLng(point instanceof LatLng ? point['lat'] : (map_type['fromPointToLatLng'](point, map['getZoom']()))['lat'], bounds['sw']['lng'] - 1),
             intersections = 0;
-            
-            for(var i=0; i < position.length - 1; i++){
-                var pt1 = map_type['fromLatLngToPoint'](position[i], map['getZoom']()),
-                pt2 = map_type['fromLatLngToPoint'](position[i + 1], map['getZoom']()),
-                multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
-                offset = pt1['y'] - (multiplier * pt1['x']),
-                should_be_y = (multiplier * mouse_pt['x']) + offset,
-                x = (mouse_pt['y'] - offset) / multiplier;
-                
-                // check if we're over the line
-                if(mouse_pt['x'] >= (Math.min(pt1['x'], pt2['x']) - threshold) && // if the mouse is right of the left limit of the segment,
-                    mouse_pt['x'] <= (Math.max(pt1['x'], pt2['x']) + threshold) && // left of the right limit of the segment, and
-                    Math.abs(mouse_pt['y'] - should_be_y) <= threshold){ // within the threshold of where the line should be
-                    return 1; // then we're moused over
-                }
-                
-                if(this instanceof Polygon && this['isClosed']()){ // if this is a Polygon
-                    if(x > map_type['fromLatLngToPoint'](outside_point, map['getZoom']())['x'] &&
-                        x <= mouse_pt['x'] &&
-                        mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
-                        mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
-                        intersections++;
-                    }
-                }
+            if(!this.options['position']){
+                this.options['position'] = [[]];
             }
             
-            if(this instanceof Polygon && intersections % 2){ // if we have an odd number of intersections, we must be inside the polygonprocess_touch
-                return 1;
+            for(var j=0; j<opt_options['position'].length; j++){
+                var position = opt_options['position'][j];
+                
+                for(var i=0; i < position.length - 1; i++){
+                    var pt1 = map_type['fromLatLngToPoint'](position[i], map['getZoom']()),
+                    pt2 = map_type['fromLatLngToPoint'](position[i + 1], map['getZoom']()),
+                    multiplier = (pt2['y'] - pt1['y']) / (pt2['x'] - pt1['x']),
+                    offset = pt1['y'] - (multiplier * pt1['x']),
+                    should_be_y = (multiplier * mouse_pt['x']) + offset,
+                    x = (mouse_pt['y'] - offset) / multiplier;
+                    
+                    // check if we're over the line
+                    if(mouse_pt['x'] >= (Math.min(pt1['x'], pt2['x']) - threshold) && // if the mouse is right of the left limit of the segment,
+                        mouse_pt['x'] <= (Math.max(pt1['x'], pt2['x']) + threshold) && // left of the right limit of the segment, and
+                        Math.abs(mouse_pt['y'] - should_be_y) <= threshold){ // within the threshold of where the line should be
+                        return 1; // then we're moused over
+                    }
+                    
+                    if(this instanceof Polygon && this['isClosed']()){ // if this is a Polygon
+                        if(x > map_type['fromLatLngToPoint'](outside_point, map['getZoom']())['x'] &&
+                            x <= mouse_pt['x'] &&
+                            mouse_pt['y'] >= Math.min(pt1['y'], pt2['y']) &&
+                            mouse_pt['y'] <= Math.max(pt1['y'], pt2['y'])){
+                            intersections++;
+                        }
+                    }
+                }
+                
+                if(this instanceof Polygon && intersections % 2){ // if we have an odd number of intersections, we must be inside the polygonprocess_touch
+                    return 1;
+                }
             }
         }
     };
@@ -1545,8 +1624,18 @@ Overlays
             'mouseover' : [],
             'mouseout' : []
         };
-        var bounds = this['bounds'] = new LatLngBounds;
-        bounds['extend'].apply(bounds, this.options.position || []);
+        if(!this.options['position']){
+            this.options['position'] = [[]];
+        }
+        if(this.options['position'][0] instanceof LatLng){
+            this.options['position'][0] = this.options['position'];
+        }
+
+        var bounds = this['bounds'] = new LatLngBounds,
+        primary_form = this.options['position'][0];
+        for(var i=0; i<primary_form.length; i++){
+            bounds.extend(primary_form[i]);
+        }
 
         if(this.options['map'] && this.options['position'] && this.options['position'].length > 0){ // if we have points, let's draw the line
             this.options['map'].render();
@@ -1556,49 +1645,57 @@ Overlays
     Polygon.prototype['getArea'] = function(r){
         var opt_options = this.options,
         map = opt_options['map'],
-        position = opt_options['position'],
+        pos = opt_options['position'],
         x = 0,
-        latlng1 = position[0];
+        total_area = 0;
         if(!r && map && map.options['map_type'] && map['getMapType']()[0]){
             r = map['getMapType']()[0].options['earth_radius']; // default radius of earth
         }
         
-        for(var i=1; i<position.length - 1; i++){
-            var a = 0,
-            b = 0,
-            f = 0,
-            c = [latlng1, position[i], position[i + 1], latlng1],
-            d = [],
-            e = [];
-            
-            for(var j=0; j<3; j++){
-                var lat1 = c[j]['latRadians'](),
-                lat2 = c[j + 1]['latRadians'](),
-                lng1 = c[j]['lngRadians'](),
-                lng2 = c[j + 1]['lngRadians']();
-                d[j] = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin((lat1 - lat2) / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin((lng1 - lng2) / 2), 2)));
-                f += d[j];
+        for(var k=0; k<pos.length; k++){
+            var position = pos[k],
+            latlng1 = position[0];
+            for(var i=1; i<position.length - 1; i++){
+                var a = 0,
+                b = 0,
+                f = 0,
+                c = [latlng1, position[i], position[i + 1], latlng1],
+                d = [],
+                e = [];
                 
-                var g = e[j] = [
-                    Math.cos(lat1) * Math.cos(lng1),
-                    Math.cos(lat1) * Math.sin(lng1),
-                    Math.sin(lat1)
-                ];
+                for(var j=0; j<3; j++){
+                    var lat1 = c[j]['latRadians'](),
+                    lat2 = c[j + 1]['latRadians'](),
+                    lng1 = c[j]['lngRadians'](),
+                    lng2 = c[j + 1]['lngRadians']();
+                    d[j] = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin((lat1 - lat2) / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin((lng1 - lng2) / 2), 2)));
+                    f += d[j];
+                    
+                    var g = e[j] = [
+                        Math.cos(lat1) * Math.cos(lng1),
+                        Math.cos(lat1) * Math.sin(lng1),
+                        Math.sin(lat1)
+                    ];
+                }
+                
+                f /= 2;
+                c = Math.tan(f/2);
+                for(j=0; j<3; j++){
+                    c *= Math.tan((f - d[j]) / 2);
+                }
+                
+                a = 4 * Math.atan(Math.sqrt(Math.abs(c)));
+                b = 0 < e[0][0] * e[1][1] * e[2][2] + e[1][0] * e[2][1] * e[0][2] + e[2][0] * e[0][1] * e[1][2] - e[0][0] * e[1][2] - e[1][0] * e[0][1] * e[2][2] - e[2][0] * e[1][1] * e[0][2] ? 1 : -1;
+                
+                x += a * b;
             }
-            
-            f /= 2;
-            c = Math.tan(f/2);
-            for(j=0; j<3; j++){
-                c *= Math.tan((f - d[j]) / 2);
+            if(k){
+                total_area -= Math.abs(x * Math.pow(r, 2));
+            } else {
+                total_area += Math.abs(x * Math.pow(r, 2));
             }
-            
-            a = 4 * Math.atan(Math.sqrt(Math.abs(c)));
-            b = 0 < e[0][0] * e[1][1] * e[2][2] + e[1][0] * e[2][1] * e[0][2] + e[2][0] * e[0][1] * e[1][2] - e[0][0] * e[1][2] - e[1][0] * e[0][1] * e[2][2] - e[2][0] * e[1][1] * e[0][2] ? 1 : -1;
-            
-            x += a * b;
         }
-        
-        return Math.abs(x * Math.pow(r, 2));
+        return total_area;
     };
     
     make_public('Polygon', Polygon);
