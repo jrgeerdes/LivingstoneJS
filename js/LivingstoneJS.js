@@ -29,10 +29,10 @@ Copyright (C) 2014-2015  Jeremy R. Geerdes
 
 TODO:
 
-- Add support for exclusions to Polygons
 - GeoJSON vector map type. Maybe even make that default
 - Directions/routing support. Maybe even turn-by-turn directions?
 - InfoWindow.prototype.draw needs to be reworked to more adequately account for possible CSS changes to iw layout.
+- Support for fractal zooming, zoom animations
 
 *****/
 
@@ -264,6 +264,19 @@ TODO:
         return center_pt;
     };
     Map.prototype.render = function(){
+        // so, the theory is that we set up the render call in a timeout so that it is running in a parallel thread.
+        // it also allows us to cancel the render if another is called.
+        var c = this.render_closure = this.render_closure || create_method_closure(this, Map.prototype.actually_render);
+        if(this.render_timeout){
+            clearTimeout(this.render_timeout);
+        }
+        this.render_timeout = setTimeout(c, 1);
+    };
+    
+    Map.prototype.actually_render = function(){
+        clearTimeout(this.render_timeout);
+        this.render_timeout = undefined;
+        
         // calculate the offset of the top-left corner of the map
         var offsetLeft = 0,
         offsetTop = 0,
@@ -294,6 +307,9 @@ TODO:
                 this.infowindows
             ];
             for(var i = 0; i < overlays.length; i++){
+                if(this.render_timeout){ // if a new render_timeout has been set
+                    return; // we'll just jump out.
+                }
                 var olays = overlays[i];
                 for(var j = 0; olays && j < olays.length; j++){
                     var overlay = olays[j];
@@ -305,6 +321,9 @@ TODO:
             // render the tiles
             // we render the layers backwards (i.e., from last to first) because we're drawing them all with composite destination-over
             for(var i=this.map_types.length - 1; i>=0; i--){
+                if(this.render_timeout){ // if a new render_timeout has been set
+                    return; // we'll just jump out.
+                }
                 var map_type = this.map_types[i],
                 tileWidth = map_type.options['width'] || 256,
                 tileHeight = map_type.options['height'] || 256,
@@ -621,7 +640,7 @@ TODO:
     };
     
     Map.prototype.mousewheel = function(e){
-        var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.details)));
+        var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.detail)));
         
         if(!this.scroll_timeout){
             this.scroll_timeout = setTimeout(create_method_closure(this, Map.prototype.dblclick, [e, delta < 0]), 500);
@@ -836,7 +855,8 @@ TODO:
 //            tileX = total_tiles + tileX;
 //        }
 
-        var img = tiles[zoom] && tiles[zoom][tileX % total_tiles]? tiles[zoom][tileX % total_tiles][tileY] : undefined,
+//        var img = tiles[zoom] && tiles[zoom][tileX % total_tiles]? tiles[zoom][tileX % total_tiles][tileY] : undefined,
+        var img = tiles[zoom] && tiles[zoom][tileX]? tiles[zoom][tileX][tileY] : undefined,
         imgX = (x * tileWidth) - map.offsetLeft,
         imgY = (y * tileHeight) - map.offsetTop,
         context = map.context;
@@ -845,12 +865,15 @@ TODO:
         context.save();
         context.globalCompositeOperation = 'destination-over';
         if(y >= 0 && y < total_tiles && (!opt_options['no_infinite_scroll'] || x >= 0 && x < total_tiles)){
-            if(img && img.LivingstoneJS_ready){
-                if(imgX > -tileWidth && imgY > -tileHeight){
-                    context.drawImage(img, imgX, imgY);
-                }
-            } else if(!img){
+            if(!img){
                 this.generateTile(tileX, tileY, zoom, map);
+            } else if(img.LivingstoneJS_ready){
+                if(imgX > -tileWidth && imgY > -tileHeight){
+                    context.drawImage(img, imgX, imgY); // this should be updated to allow for scaling, fractional zooming/animations.
+                }
+            } else {
+                context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 1)';
+                context.fillRect(imgX, imgY, tileWidth, tileHeight);                
             }
         } else {
             context.fillStyle = map.options['background_color'] || 'rgba(100, 100, 100, 1)';
@@ -915,7 +938,29 @@ TODO:
     function VectorMapType(map, opt_options){
     }
     extend_class(VectorMapType, MapType);
+    VectorMapType.prototype.generateTile = function(x, y, zoom, map){
+        var tiles = this.tiles = this.tiles || {};
+        if(!tiles[zoom]){
+            tiles[zoom] = {};
+        }
+        if(!tiles[zoom][x]){
+            tiles[zoom][x] = {};
+        }
+        
+        var img = tiles[zoom][x][y] = eval;
+        img.onload = create_method_closure(this, function(x, y, zoom){
+            this.tiles[zoom][x][y].LivingstoneJS_ready = 1; // let's assign a property to verify that the tile is loaded
+            map.render();
+//            this.placeTile(x, y, zoom);
+        }, [x, y, zoom]);
+        img.src = this['resolveTileUrl'](x, y, zoom);
+        
+        tiles[zoom][x][y] = img;
+    };
+    
     VectorMapType.prototype.placeTile = function(x, y, zoom, map){
+        var tiles = this.tiles = this.tiles || {},
+        tile = tiles[zoom] && tiles[zoom][x] ? tiles[zoom][x][y] : undefined
     }
 
 
@@ -1423,7 +1468,7 @@ Overlays
 
         var bounds = this['bounds'] = new LatLngBounds,
         primary_form = this.options['position'][0];
-        for(var i=0; i<primary_form.length; i++){
+        for(var i=0; primary_form && i<primary_form.length; i++){
             bounds.extend(primary_form[i]);
         }
 //        console.log(bounds);
@@ -1474,7 +1519,7 @@ Overlays
                     }
                 }
                 
-                if(this.isClosed()){
+                if(this['isClosed']()){
                     context.closePath();
                 }
             
@@ -1633,7 +1678,7 @@ Overlays
 
         var bounds = this['bounds'] = new LatLngBounds,
         primary_form = this.options['position'][0];
-        for(var i=0; i<primary_form.length; i++){
+        for(var i=0; primary_form && i<primary_form.length; i++){
             bounds.extend(primary_form[i]);
         }
 
